@@ -29,7 +29,7 @@
 1. 下载最新版本：[Releases](https://github.com/yourusername/block-twitter/releases)
 2. 解压 ZIP 文件
 3. 打开 `chrome://extensions/`，开启**开发者模式**（右上角）
-4. 点击**"加载已解压的扩展程序"**，选择解压文件夹
+4. 点击 **"加载已解压的扩展程序"**，选择解压文件夹
 5. 完成！工具栏出现 block-twitter 图标
 
 ### 使用
