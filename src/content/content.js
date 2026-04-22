@@ -60,11 +60,11 @@ class DOMScanner {
     this.processedPosts = new WeakSet();
     // Multiple fallback selectors for finding posts
     this.postSelectors = [
-      'article', // Twitter/X main post selector
-      '[data-testid="Tweet"]',
-      '[data-testid="tweet"]',
-      '.tweet',
-      '[role="article"]'
+      'article[data-testid="tweet"]', // Most specific X.com post selector
+      'article[role="article"]', // Fallback with role
+      'article', // Generic article tag
+      '[data-testid="tweet"]', // Data attribute only
+      '[role="article"]' // Role attribute only
     ];
   }
 
@@ -97,11 +97,11 @@ class DOMScanner {
       }
 
       // Also scan existing posts on initial load
-      // Add small delay to ensure DOM is ready
+      // Add delay to ensure DOM is ready (X.com loads content dynamically)
       setTimeout(() => {
         this.scanExistingPosts();
         this.logSelectorDebugInfo();
-      }, 500);
+      }, 2000);
     } catch (error) {
       console.error('[block-twitter] Error starting DOMScanner:', error);
     }
