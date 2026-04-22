@@ -743,6 +743,9 @@ class BlockingManager {
       const result = await this.loadBlockedUsers();
       this.blockedUsers = result.blockedUsers || {};
 
+      // Apply blocking to already existing posts on page
+      this.applyBlockingToCurrentPage();
+
       // Listen for storage changes
       chrome.storage.onChanged.addListener((changes, areaName) => {
         if (areaName === 'local' && changes.blockedUsers) {
@@ -753,6 +756,30 @@ class BlockingManager {
       console.log('[block-twitter] BlockingManager initialized with', Object.keys(this.blockedUsers).length, 'blocked users');
     } catch (error) {
       console.error('[block-twitter] Error initializing BlockingManager:', error);
+    }
+  }
+
+  /**
+   * Apply blocking to all currently visible posts on the page
+   * @private
+   */
+  applyBlockingToCurrentPage() {
+    try {
+      const postSelectors = [
+        'article[data-testid="tweet"]',
+        'article[role="article"]',
+        'article',
+        '[data-testid="tweet"]',
+        '[role="article"]'
+      ];
+
+      for (const username of Object.keys(this.blockedUsers)) {
+        this.hidePostsFromUser(username);
+      }
+
+      console.log('[block-twitter] Applied blocking to', Object.keys(this.blockedUsers).length, 'blocked users on current page');
+    } catch (error) {
+      console.error('[block-twitter] Error applying blocking to page:', error);
     }
   }
 
