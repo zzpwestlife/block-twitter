@@ -261,6 +261,8 @@ class DOMScanner {
 class UserHighlighter {
   constructor() {
     this.highlightedPosts = new WeakMap();
+    this.selectedUsernames = new Set();       // tracks checked usernames for batch operations
+    this.onSelectionChanged = null;           // callback when selection changes
   }
 
   /**
@@ -294,6 +296,23 @@ class UserHighlighter {
       // Create and insert the block button
       const blockButton = this.createBlockButton(username);
       indicatorBadge.parentElement?.insertBefore(blockButton, indicatorBadge.nextSibling);
+
+      // Create and insert selection checkbox for batch operations
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'bt-select-checkbox';
+      checkbox.dataset.username = username;
+      checkbox.addEventListener('change', () => {
+        if (checkbox.checked) {
+          this.selectedUsernames.add(username);
+        } else {
+          this.selectedUsernames.delete(username);
+        }
+        if (this.onSelectionChanged) {
+          this.onSelectionChanged();
+        }
+      });
+      usernameElement.parentElement?.insertBefore(checkbox, indicatorBadge);
 
       // Mark this post as highlighted
       this.highlightedPosts.set(postElement, { username, matchedKeywords });
@@ -464,10 +483,201 @@ class UserHighlighter {
 
     return button;
   }
+
+  /**
+   * Select all matched posts for batch operations
+   */
+  selectAll() {
+    const checkboxes = document.querySelectorAll('.bt-select-checkbox');
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = true;
+      this.selectedUsernames.add(checkbox.dataset.username);
+    });
+    if (this.onSelectionChanged) {
+      this.onSelectionChanged();
+    }
+  }
+
+  /**
+   * Clear all selections
+   */
+  clearAll() {
+    const checkboxes = document.querySelectorAll('.bt-select-checkbox');
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = false;
+    });
+    this.selectedUsernames.clear();
+    if (this.onSelectionChanged) {
+      this.onSelectionChanged();
+    }
+  }
+
+  /**
+   * Get array of currently selected usernames
+   */
+  getSelected() {
+    return Array.from(this.selectedUsernames);
+  }
 }
 
 // ============================================================================
-// 4. BlockingManager - Hide/show posts based on blocked user list
+// 4. BatchBlockToolbar - Floating toolbar for batch blocking operations
+// ============================================================================
+
+class BatchBlockToolbar {
+  constructor(highlighter, blockingManager) {
+    this.highlighter = highlighter;
+    this.blockingManager = blockingManager;
+    this.toolbar = null;
+    this.countLabel = null;
+  }
+
+  /**
+   * Create and render the floating toolbar
+   */
+  render() {
+    this.toolbar = document.createElement('div');
+    this.toolbar.id = 'bt-batch-toolbar';
+    this.toolbar.className = 'bt-batch-toolbar';
+    this.toolbar.style.cssText = `
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1d1f23;
+      color: white;
+      border-radius: 12px;
+      padding: 12px 20px;
+      display: none;
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+      z-index: 99999;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    `;
+
+    // Count label
+    this.countLabel = document.createElement('span');
+    this.countLabel.className = 'bt-batch-count';
+    this.countLabel.style.cssText = 'font-weight: 600; font-size: 14px;';
+    this.toolbar.appendChild(this.countLabel);
+
+    // Select All button
+    const selectAllBtn = document.createElement('button');
+    selectAllBtn.className = 'bt-batch-select-all';
+    selectAllBtn.style.cssText = `
+      background: transparent;
+      color: #60a5fa;
+      border: 1px solid #60a5fa;
+      border-radius: 6px;
+      padding: 6px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    `;
+    selectAllBtn.addEventListener('click', () => {
+      this.highlighter.selectAll();
+    });
+    this.toolbar.appendChild(selectAllBtn);
+    this.selectAllBtn = selectAllBtn;
+
+    // Block All button
+    const blockAllBtn = document.createElement('button');
+    blockAllBtn.className = 'bt-batch-block-btn';
+    blockAllBtn.textContent = '屏蔽所有选中';
+    blockAllBtn.style.cssText = `
+      background: #dc2626;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+    `;
+    blockAllBtn.addEventListener('click', () => {
+      this.blockAll();
+    });
+    this.toolbar.appendChild(blockAllBtn);
+
+    document.body.appendChild(this.toolbar);
+  }
+
+  /**
+   * Update toolbar visibility and count label
+   */
+  update() {
+    if (!this.toolbar) return;
+
+    const selectedCount = this.highlighter.selectedUsernames.size;
+    const totalCount = document.querySelectorAll('.bt-select-checkbox').length;
+
+    if (selectedCount === 0) {
+      this.toolbar.style.display = 'none';
+    } else {
+      this.toolbar.style.display = 'flex';
+      this.countLabel.textContent = `已选择 ${selectedCount} 个用户`;
+      this.selectAllBtn.textContent = `全选 (${totalCount})`;
+    }
+  }
+
+  /**
+   * Block all selected users
+   */
+  async blockAll() {
+    const selected = this.highlighter.getSelected();
+    if (selected.length === 0) return;
+
+    const count = selected.length;
+    console.log(`[block-twitter] Batch blocking ${count} users:`, selected);
+
+    try {
+      // Block all in parallel
+      await Promise.all(selected.map(username => this.blockingManager.blockUser(username)));
+
+      // Show success message
+      this.showToast(`已屏蔽 ${count} 个用户`);
+
+      // Clear selection
+      this.highlighter.clearAll();
+      this.update();
+    } catch (error) {
+      console.error('[block-twitter] Error batch blocking:', error);
+      this.showToast('屏蔽失败，请重试', 'error');
+    }
+  }
+
+  /**
+   * Show toast notification
+   * @private
+   */
+  showToast(message, type = 'success') {
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+      position: fixed;
+      bottom: 120px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: ${type === 'success' ? '#16a34a' : '#dc2626'};
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 99998;
+      animation: fadeInOut 2s ease-in-out;
+    `;
+    toast.textContent = message;
+    document.body.appendChild(toast);
+
+    setTimeout(() => {
+      toast.remove();
+    }, 2000);
+  }
+}
+
+// ============================================================================
+// 5. BlockingManager - Hide/show posts based on blocked user list
 // ============================================================================
 
 class BlockingManager {
@@ -802,6 +1012,11 @@ class ContentScriptManager {
         this.processPost(postElement);
       });
       this.scanner.startMonitoring();
+
+      // Initialize batch block toolbar
+      this.toolbar = new BatchBlockToolbar(this.highlighter, this.blockingManager);
+      this.highlighter.onSelectionChanged = () => this.toolbar.update();
+      this.toolbar.render();
 
       // Setup message listener for popup
       chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
