@@ -1,0 +1,35 @@
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# IDE
+*.swp
+*.swo
+*~
+.env
+.env.local
+
+# Build outputs
+dist/
+build/
+
+# Temporary files
+*.tmp
+*.bak
+
+# Claude Code
+.claude/
+superpowers/
+AGENTS.md
+
+# Logs
+*.log

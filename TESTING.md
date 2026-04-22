@@ -41,10 +41,10 @@ You should now see the extension loaded with a red icon in your Chrome toolbar.
 ## ✅ Testing Checklist
 
 ### 1. Basic Setup
-- [ ] Extension appears in Chrome toolbar
-- [ ] Popup shows without errors (click extension icon)
-- [ ] Options page opens (click "Open Settings" in popup)
-- [ ] No console errors in DevTools (F12 → Console)
+- [x] Extension appears in Chrome toolbar
+- [x] Popup shows without errors (click extension icon)
+- [x] Options page opens (click "Open Settings" in popup)
+- [x] No console errors in DevTools (F12 → Console)
 
 ### 2. Keywords Management (Options Page)
 - [ ] Add keyword: Type "scam" and click Add

@@ -1,0 +1,375 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #f9fafb;
+    color: #1f2937;
+    line-height: 1.5;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0;
+}
+
+header {
+    background: #ffffff;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+header h1 {
+    font-size: 28px;
+    font-weight: 600;
+}
+
+.content {
+    padding: 24px;
+}
+
+/* Sections */
+.section {
+    background: #ffffff;
+    border-radius: 8px;
+    padding: 24px;
+    margin-bottom: 24px;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+    border: 1px solid #e5e7eb;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.section-header h2 {
+    font-size: 18px;
+    font-weight: 600;
+}
+
+.counter {
+    font-size: 13px;
+    color: #6b7280;
+}
+
+/* Input and Button Styles */
+.input-field {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 14px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input-field:focus {
+    outline: none;
+    border-color: #000000;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.1);
+}
+
+.input-field::placeholder {
+    color: #9ca3af;
+}
+
+.btn {
+    padding: 10px 16px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    white-space: nowrap;
+}
+
+.btn:active {
+    transform: scale(0.98);
+}
+
+.btn-primary {
+    background: #000000;
+    color: #ffffff;
+}
+
+.btn-primary:hover {
+    background: #1f2937;
+}
+
+.btn-secondary {
+    background: #ffffff;
+    color: #1f2937;
+    border-color: #d1d5db;
+}
+
+.btn-secondary:hover {
+    background: #f3f4f6;
+    border-color: #9ca3af;
+}
+
+.btn-danger {
+    background: #ef4444;
+    color: #ffffff;
+}
+
+.btn-danger:hover {
+    background: #dc2626;
+}
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 12px;
+}
+
+/* Keywords Management */
+.keywords-tools,
+.blocked-users-tools {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+
+.input-group {
+    display: flex;
+    gap: 8px;
+}
+
+.input-group .input-field {
+    flex: 1;
+}
+
+.input-group .btn {
+    flex-shrink: 0;
+}
+
+.button-group {
+    display: flex;
+    gap: 8px;
+}
+
+.button-group .btn {
+    flex: 1;
+}
+
+.import-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+/* Keywords List */
+.keywords-list,
+.blocked-users-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+}
+
+.keywords-list:empty::after,
+.blocked-users-list:empty::after {
+    content: "No items yet";
+    padding: 16px;
+    text-align: center;
+    color: #9ca3af;
+    font-size: 13px;
+}
+
+.keyword-item,
+.user-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 14px;
+}
+
+.keyword-item:last-child,
+.user-item:last-child {
+    border-bottom: none;
+}
+
+.keyword-text {
+    flex: 1;
+    word-break: break-word;
+    color: #1f2937;
+}
+
+.user-name {
+    flex: 1;
+    word-break: break-word;
+    color: #1f2937;
+}
+
+.user-timestamp {
+    font-size: 12px;
+    color: #9ca3af;
+    margin-right: 12px;
+}
+
+.btn-delete {
+    background: #fee2e2;
+    color: #991b1b;
+    border: none;
+}
+
+.btn-delete:hover {
+    background: #fecaca;
+}
+
+.btn-unblock {
+    background: #fef3c7;
+    color: #92400e;
+    border: none;
+}
+
+.btn-unblock:hover {
+    background: #fde68a;
+}
+
+/* Scrollbar styling */
+.keywords-list::-webkit-scrollbar,
+.blocked-users-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.keywords-list::-webkit-scrollbar-track,
+.blocked-users-list::-webkit-scrollbar-track {
+    background: #f3f4f6;
+    border-radius: 3px;
+}
+
+.keywords-list::-webkit-scrollbar-thumb,
+.blocked-users-list::-webkit-scrollbar-thumb {
+    background: #d1d5db;
+    border-radius: 3px;
+}
+
+.keywords-list::-webkit-scrollbar-thumb:hover,
+.blocked-users-list::-webkit-scrollbar-thumb:hover {
+    background: #9ca3af;
+}
+
+/* Toast Notification */
+.toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    padding: 12px 16px;
+    border-radius: 6px;
+    font-size: 14px;
+    max-width: 300px;
+    display: none;
+    z-index: 1000;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    animation: slideIn 0.3s ease;
+}
+
+.toast.show {
+    display: block;
+}
+
+.toast.success {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+}
+
+.toast.error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}
+
+.toast.info {
+    background: #dbeafe;
+    color: #0c4a6e;
+    border: 1px solid #7dd3fc;
+}
+
+@keyframes slideIn {
+    from {
+        transform: translateX(400px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+    header {
+        padding: 16px;
+    }
+
+    header h1 {
+        font-size: 24px;
+    }
+
+    .content {
+        padding: 16px;
+    }
+
+    .section {
+        padding: 16px;
+        margin-bottom: 16px;
+    }
+
+    .section-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .button-group {
+        flex-direction: column;
+    }
+
+    .button-group .btn {
+        width: 100%;
+    }
+
+    .keywords-list,
+    .blocked-users-list {
+        max-height: 300px;
+    }
+}
+
+@media (max-width: 480px) {
+    .input-group {
+        flex-direction: column;
+    }
+
+    .input-group .btn {
+        width: 100%;
+    }
+
+    .toast {
+        bottom: 10px;
+        right: 10px;
+        left: 10px;
+        max-width: none;
+    }
+}

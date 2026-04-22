@@ -172,3 +172,55 @@
     opacity: 1;
   }
 }
+
+/* True block button (X native) */
+.bt-true-block-button {
+  display: inline-block;
+  padding: 4px 8px;
+  margin-left: 4px;
+  background-color: #7f1d1d;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.bt-true-block-button:hover {
+  background-color: #991b1b;
+}
+
+.bt-true-block-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Batch toolbar true block button */
+.bt-batch-true-block-btn {
+  background: #7f1d1d;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.bt-batch-true-block-btn:hover {
+  background: #991b1b;
+  transform: scale(1.02);
+}
+
+.bt-batch-true-block-btn:active {
+  transform: scale(0.98);
+}
+
+.bt-batch-true-block-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}

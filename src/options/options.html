@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>block-twitter Settings</title>
+    <link rel="stylesheet" href="options.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>block-twitter Settings</h1>
+        </header>
+
+        <main class="content">
+            <!-- Keywords Management Section -->
+            <section class="section keywords-section">
+                <div class="section-header">
+                    <h2>Keywords Management</h2>
+                    <p class="counter">Keywords: <span id="keywordCount">0</span> / 1000</p>
+                </div>
+
+                <div class="keywords-tools">
+                    <div class="input-group">
+                        <input
+                            type="text"
+                            id="keywordInput"
+                            class="input-field"
+                            placeholder="Enter a keyword..."
+                            maxlength="100"
+                        >
+                        <button id="addKeywordBtn" class="btn btn-primary">Add</button>
+                    </div>
+
+                    <input
+                        type="text"
+                        id="keywordFilter"
+                        class="input-field"
+                        placeholder="Search keywords..."
+                    >
+
+                    <div class="button-group">
+                        <button id="exportBtn" class="btn btn-secondary">Export Keywords</button>
+                        <label class="btn btn-secondary import-label">
+                            Import Keywords
+                            <input type="file" id="importFile" accept=".json" style="display: none;">
+                        </label>
+                    </div>
+
+                    <div class="input-group url-import-group">
+                        <input
+                            type="url"
+                            id="urlImportInput"
+                            class="input-field"
+                            placeholder="Paste URL to import keywords (GitHub Gist, JSON, plain text)..."
+                        >
+                        <button id="urlImportBtn" class="btn btn-secondary">Import from URL</button>
+                    </div>
+                </div>
+
+                <div id="keywordsList" class="keywords-list">
+                    <!-- Keywords will be populated here -->
+                </div>
+            </section>
+
+            <!-- Hidden Users Section -->
+            <section class="section blocked-users-section">
+                <div class="section-header">
+                    <h2>Hidden Users</h2>
+                    <p class="counter">Hidden users: <span id="blockedUserCount">0</span></p>
+                </div>
+
+                <div class="blocked-users-tools">
+                    <input
+                        type="text"
+                        id="userFilter"
+                        class="input-field"
+                        placeholder="Search hidden users..."
+                    >
+
+                    <button id="clearAllBtn" class="btn btn-danger">Clear All</button>
+                </div>
+
+                <div id="blockedUsersList" class="blocked-users-list">
+                    <!-- Hidden users will be populated here -->
+                </div>
+            </section>
+        </main>
+
+        <!-- Toast notification -->
+        <div id="toast" class="toast"></div>
+    </div>
+
+    <script src="options.js"></script>
+</body>
+</html>

@@ -52,6 +52,27 @@ class KeywordMatcher {
   }
 
   /**
+   * Extract full text from a post element, including emoji rendered as <img alt="...">
+   * X/Twitter converts emoji characters to <img> tags; textContent misses them.
+   */
+  static extractPostText(element) {
+    let text = '';
+    const walk = (node) => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        text += node.textContent;
+      } else if (node.nodeName === 'IMG' && node.alt) {
+        text += node.alt;
+      } else {
+        for (const child of node.childNodes) {
+          walk(child);
+        }
+      }
+    };
+    walk(element);
+    return text;
+  }
+
+  /**
    * Escape special regex characters
    * @private
    */
@@ -297,6 +318,10 @@ class UserHighlighter {
       const blockButton = this.createBlockButton(username);
       indicatorBadge.parentElement?.insertBefore(blockButton, indicatorBadge.nextSibling);
 
+      // Create and insert the true block button (X native)
+      const trueBlockButton = this.createTrueBlockButton(username, postElement);
+      blockButton.parentElement?.insertBefore(trueBlockButton, blockButton.nextSibling);
+
       // Create and insert selection checkbox for batch operations
       const checkbox = document.createElement('input');
       checkbox.type = 'checkbox';
@@ -431,7 +456,7 @@ class UserHighlighter {
   createBlockButton(username) {
     const button = document.createElement('button');
     button.className = 'bt-block-button';
-    button.textContent = 'Block User';
+    button.textContent = 'Hide User';
     button.setAttribute('data-username', username);
     button.type = 'button';
     button.style.cssText = `
@@ -464,20 +489,78 @@ class UserHighlighter {
       try {
         // Disable button to prevent double-clicks
         button.disabled = true;
-        button.textContent = 'Blocking...';
+        button.textContent = 'Hiding...';
 
         // Call BlockingManager to handle the blocking
         await window.blockingManager?.blockUser(username);
 
-        button.textContent = 'Blocked!';
+        button.textContent = 'Hidden!';
         button.style.backgroundColor = '#4caf50';
         setTimeout(() => {
           button.disabled = false;
         }, 2000);
       } catch (error) {
-        console.error('[block-twitter] Error blocking user:', error);
+        console.error('[block-twitter] Error hiding user:', error);
         button.disabled = false;
-        button.textContent = 'Block User';
+        button.textContent = 'Hide User';
+      }
+    });
+
+    return button;
+  }
+
+  /**
+   * Create a true block button that triggers X's native block flow
+   * @private
+   */
+  createTrueBlockButton(username, postElement) {
+    const button = document.createElement('button');
+    button.className = 'bt-true-block-button';
+    button.textContent = '🚫 屏蔽(X)';
+    button.dataset.username = username;
+    button.type = 'button';
+    button.style.cssText = `
+      display: inline-block;
+      margin-left: 4px;
+      padding: 4px 12px;
+      background-color: #7f1d1d;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.2s;
+    `;
+
+    button.addEventListener('mouseover', () => {
+      if (!button.disabled) button.style.backgroundColor = '#991b1b';
+    });
+
+    button.addEventListener('mouseout', () => {
+      if (!button.disabled) button.style.backgroundColor = '#7f1d1d';
+    });
+
+    button.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      button.disabled = true;
+      button.textContent = '屏蔽中...';
+      button.style.opacity = '0.7';
+
+      const ok = await TrueBlocker.block(postElement, username);
+      if (ok) {
+        button.textContent = '✓ 已屏蔽';
+        button.style.backgroundColor = '#16a34a';
+        button.style.opacity = '1';
+        // Also apply local CSS hide
+        window.blockingManager?.blockUser(username);
+      } else {
+        button.disabled = false;
+        button.textContent = '🚫 屏蔽(X)';
+        button.style.backgroundColor = '#7f1d1d';
+        button.style.opacity = '1';
       }
     });
 
@@ -585,7 +668,7 @@ class BatchBlockToolbar {
     // Block All button
     const blockAllBtn = document.createElement('button');
     blockAllBtn.className = 'bt-batch-block-btn';
-    blockAllBtn.textContent = '屏蔽所有选中';
+    blockAllBtn.textContent = '隐藏所有选中';
     blockAllBtn.style.cssText = `
       background: #dc2626;
       color: white;
@@ -600,6 +683,26 @@ class BatchBlockToolbar {
       this.blockAll();
     });
     this.toolbar.appendChild(blockAllBtn);
+
+    // True Block All button (X native, sequential)
+    const trueBlockAllBtn = document.createElement('button');
+    trueBlockAllBtn.className = 'bt-batch-true-block-btn';
+    trueBlockAllBtn.textContent = '🚫 屏蔽所有(X)';
+    trueBlockAllBtn.style.cssText = `
+      background: #7f1d1d;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 6px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: background-color 0.2s;
+    `;
+    trueBlockAllBtn.addEventListener('click', () => {
+      this.trueBlockAll(trueBlockAllBtn);
+    });
+    this.toolbar.appendChild(trueBlockAllBtn);
 
     document.body.appendChild(this.toolbar);
   }
@@ -637,14 +740,52 @@ class BatchBlockToolbar {
       await Promise.all(selected.map(username => this.blockingManager.blockUser(username)));
 
       // Show success message
-      this.showToast(`已屏蔽 ${count} 个用户`);
+      this.showToast(`已隐藏 ${count} 个用户`);
 
       // Clear selection
       this.highlighter.clearAll();
       this.update();
     } catch (error) {
       console.error('[block-twitter] Error batch blocking:', error);
-      this.showToast('屏蔽失败，请重试', 'error');
+      this.showToast('隐藏失败，请重试', 'error');
+    }
+  }
+
+  /**
+   * True block all selected users via X's native block flow (sequential)
+   */
+  async trueBlockAll(btn) {
+    const selected = this.highlighter.getSelected();
+    if (selected.length === 0) return;
+
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '屏蔽中...';
+    }
+
+    let ok = 0;
+    for (const username of selected) {
+      // Find the post element that has the true block button for this user
+      const trueBlockBtn = document.querySelector(`.bt-true-block-button[data-username="${username}"]`);
+      const postEl = trueBlockBtn?.closest('article');
+      if (postEl) {
+        const success = await TrueBlocker.block(postEl, username);
+        if (success) {
+          await this.blockingManager.blockUser(username);
+          ok++;
+        }
+        // Small gap between blocks so X doesn't rate-limit
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    this.showToast(`已屏蔽 ${ok}/${selected.length} 个用户（X 原生）`);
+    this.highlighter.clearAll();
+    this.update();
+
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '🚫 屏蔽所有(X)';
     }
   }
 
@@ -677,7 +818,7 @@ class BatchBlockToolbar {
 }
 
 // ============================================================================
-// 5. BlockingManager - Hide/show posts based on blocked user list
+// 5a. BlockingManager - Hide/show posts based on blocked user list
 // ============================================================================
 
 class BlockingManager {
@@ -998,7 +1139,87 @@ class BlockingManager {
 }
 
 // ============================================================================
-// 5. Main Content Script Initialization
+// 5b. TrueBlocker - Automate X's native block flow via DOM interaction
+// ============================================================================
+
+class TrueBlocker {
+  static async block(postElement, username) {
+    try {
+      const caret = postElement.querySelector('[data-testid="caret"]');
+      if (!caret) {
+        console.warn('[block-twitter] TrueBlocker: caret button not found for', username);
+        return false;
+      }
+      caret.click();
+
+      const menuItem = await TrueBlocker.waitForBlockMenuItem(username);
+      if (!menuItem) {
+        console.warn('[block-twitter] TrueBlocker: block menu item not found for', username);
+        // Close any open menu by pressing Escape
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        return false;
+      }
+      menuItem.click();
+
+      const confirmed = await TrueBlocker.waitAndConfirm();
+      return confirmed;
+    } catch (e) {
+      console.error('[block-twitter] TrueBlocker error:', e);
+      return false;
+    }
+  }
+
+  static waitForBlockMenuItem(username, timeout = 3000) {
+    return new Promise((resolve) => {
+      const handle = username.replace('@', '').toLowerCase();
+      const deadline = Date.now() + timeout;
+
+      const check = () => {
+        const items = document.querySelectorAll('[role="menuitem"]');
+        for (const item of items) {
+          const text = item.textContent || '';
+          if (text.includes('屏蔽') || text.toLowerCase().includes('block')) {
+            if (text.toLowerCase().includes(handle) || text.includes(username)) {
+              resolve(item);
+              return;
+            }
+          }
+        }
+        if (Date.now() < deadline) {
+          setTimeout(check, 100);
+        } else {
+          resolve(null);
+        }
+      };
+      setTimeout(check, 200);
+    });
+  }
+
+  static waitAndConfirm(timeout = 3000) {
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeout;
+
+      const check = () => {
+        const confirmBtn = document.querySelector('[data-testid="confirmationSheetConfirm"]');
+        if (confirmBtn) {
+          confirmBtn.click();
+          resolve(true);
+          return;
+        }
+        if (Date.now() < deadline) {
+          setTimeout(check, 100);
+        } else {
+          // No confirm dialog appeared — some accounts may skip it, treat as success
+          resolve(true);
+        }
+      };
+      setTimeout(check, 300);
+    });
+  }
+}
+
+// ============================================================================
+// 6. Main Content Script Initialization
 // ============================================================================
 
 class ContentScriptManager {
@@ -1128,8 +1349,8 @@ class ContentScriptManager {
         return;
       }
 
-      // Extract text content from post
-      const postText = postElement.textContent || '';
+      // Extract text content from post, including emoji rendered as <img alt="...">
+      const postText = KeywordMatcher.extractPostText(postElement);
 
       // Check if post matches any keywords
       const matchedKeywords = KeywordMatcher.match(postText, this.keywords);
@@ -1214,7 +1435,7 @@ class ContentScriptManager {
 }
 
 // ============================================================================
-// 6. Start the content script when DOM is ready
+// 7. Start the content script when DOM is ready
 // ============================================================================
 
 if (document.readyState === 'loading') {
