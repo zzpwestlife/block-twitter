@@ -817,18 +817,22 @@ class ContentScriptManager {
   loadKeywords() {
     return new Promise((resolve) => {
       try {
+        console.log('[block-twitter] Attempting to load keywords from storage...');
         chrome.storage.local.get(['keywords'], (result) => {
+          console.log('[block-twitter] Storage callback received, result:', result);
           if (chrome.runtime.lastError) {
             console.error('[block-twitter] Storage error:', chrome.runtime.lastError);
             this.keywords = [];
           } else {
             this.keywords = result.keywords || [];
+            console.log('[block-twitter] Keywords from storage:', this.keywords);
           }
-          console.log(`[block-twitter] Loaded ${this.keywords.length} keywords`);
+          console.log(`[block-twitter] Loaded ${this.keywords.length} keywords (${this.keywords.join(', ')})`);
           resolve();
         });
       } catch (error) {
         console.error('[block-twitter] Error loading keywords:', error);
+        this.keywords = [];
         resolve();
       }
     });
@@ -857,6 +861,7 @@ class ContentScriptManager {
   processPost(postElement) {
     try {
       if (!this.keywords || this.keywords.length === 0) {
+        console.log('[block-twitter] Skipping post: no keywords loaded');
         return;
       }
 
@@ -867,11 +872,15 @@ class ContentScriptManager {
       const matchedKeywords = KeywordMatcher.match(postText, this.keywords);
 
       if (matchedKeywords.length > 0) {
+        console.log('[block-twitter] Found matching keywords:', matchedKeywords);
         // Find username in post
         const username = this.extractUsername(postElement);
         if (username) {
+          console.log(`[block-twitter] Highlighting post from ${username} for keywords: ${matchedKeywords.join(', ')}`);
           // Highlight the post
           this.highlighter.highlight(postElement, username, matchedKeywords);
+        } else {
+          console.log('[block-twitter] Could not extract username from post');
         }
       }
     } catch (error) {
