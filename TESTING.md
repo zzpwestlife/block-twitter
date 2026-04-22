@@ -47,12 +47,12 @@ You should now see the extension loaded with a red icon in your Chrome toolbar.
 - [x] No console errors in DevTools (F12 → Console)
 
 ### 2. Keywords Management (Options Page)
-- [ ] Add keyword: Type "scam" and click Add
-- [ ] Keyword appears in list
-- [ ] Duplicate prevention: Try adding "scam" again → Error message
-- [ ] Delete keyword: Click delete button next to keyword
-- [ ] Search keywords: Type in search box, list filters
-- [ ] Keyword counter shows correct count
+- [x] Add keyword: Type "scam" and click Add
+- [x] Keyword appears in list
+- [x] Duplicate prevention: Try adding "scam" again → Error message
+- [x] Delete keyword: Click delete button next to keyword
+- [x] Search keywords: Type in search box, list filters
+- [x] Keyword counter shows correct count
 
 ### 3. Real-time Detection (X.com / Twitter.com)
 - [ ] Go to https://x.com (or twitter.com)
