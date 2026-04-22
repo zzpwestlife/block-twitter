@@ -1113,6 +1113,16 @@ class ContentScriptManager {
    */
   processPost(postElement) {
     try {
+      // First, try to extract username to check if already blocked
+      const username = this.extractUsername(postElement);
+
+      // If user is already blocked, hide the post and return
+      if (username && this.blockingManager && this.blockingManager.blockedUsers[username]) {
+        console.log(`[block-twitter] Post from ${username} is already blocked, hiding`);
+        this.blockingManager.hidePostsFromUser(username);
+        return;
+      }
+
       if (!this.keywords || this.keywords.length === 0) {
         console.log('[block-twitter] Skipping post: no keywords loaded');
         return;
@@ -1126,8 +1136,6 @@ class ContentScriptManager {
 
       if (matchedKeywords.length > 0) {
         console.log('[block-twitter] Found matching keywords:', matchedKeywords);
-        // Find username in post
-        const username = this.extractUsername(postElement);
         if (username) {
           console.log(`[block-twitter] Highlighting post from ${username} for keywords: ${matchedKeywords.join(', ')}`);
           // Highlight the post
