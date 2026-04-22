@@ -26,10 +26,21 @@ class KeywordMatcher {
       if (!keyword || typeof keyword !== 'string') continue;
 
       const lowercaseKeyword = keyword.toLowerCase();
-      // Use word boundary regex for complete word matching
-      const regex = new RegExp(`\\b${this.escapeRegex(lowercaseKeyword)}\\b`, 'gi');
 
-      if (regex.test(lowercaseText)) {
+      // Check if keyword contains CJK (Chinese, Japanese, Korean) characters
+      const isCJK = /[一-鿿぀-ゟ゠-ヿ가-힯]/.test(lowercaseKeyword);
+
+      let matches = false;
+      if (isCJK) {
+        // For CJK text, use simple substring matching (no word boundaries in CJK)
+        matches = lowercaseText.includes(lowercaseKeyword);
+      } else {
+        // For English/other languages, use word boundary matching
+        const regex = new RegExp(`\\b${this.escapeRegex(lowercaseKeyword)}\\b`, 'gi');
+        matches = regex.test(lowercaseText);
+      }
+
+      if (matches) {
         // Avoid duplicates
         if (!matched.includes(keyword)) {
           matched.push(keyword);
