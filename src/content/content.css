@@ -1,0 +1,76 @@
+/* block-twitter: Content Script Styles */
+
+/* Keyword matched post - visual indicator */
+.bt-keyword-matched {
+  border-left: 3px solid #ff9500 !important;
+  background-color: rgba(255, 149, 0, 0.05) !important;
+}
+
+/* Warning badge for matched keywords */
+.bt-warning-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background-color: #ff9500;
+  color: white;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  margin-left: 4px;
+  cursor: pointer;
+}
+
+.bt-warning-badge:hover {
+  background-color: #ff7a00;
+}
+
+/* Tooltip for keywords */
+.bt-warning-badge[title]:hover::after {
+  content: attr(title);
+  position: absolute;
+  background: #333;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  white-space: nowrap;
+  z-index: 10000;
+}
+
+/* Block user button */
+.bt-block-button {
+  display: inline-block;
+  padding: 4px 8px;
+  margin-left: 4px;
+  background-color: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.bt-block-button:hover {
+  background-color: #b91c1c;
+}
+
+.bt-block-button:disabled {
+  background-color: #a1a1a1;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* Blocked post - hidden */
+[data-bt-blocked="true"] {
+  display: none !important;
+}
+
+/* Container for indicators */
+.bt-indicators {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
