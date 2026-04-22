@@ -97,9 +97,29 @@ class DOMScanner {
       }
 
       // Also scan existing posts on initial load
-      this.scanExistingPosts();
+      // Add small delay to ensure DOM is ready
+      setTimeout(() => {
+        this.scanExistingPosts();
+        this.logSelectorDebugInfo();
+      }, 500);
     } catch (error) {
       console.error('[block-twitter] Error starting DOMScanner:', error);
+    }
+  }
+
+  /**
+   * Log debug info about which selectors find posts
+   * @private
+   */
+  logSelectorDebugInfo() {
+    console.log('[block-twitter] Selector debug info:');
+    for (const selector of this.postSelectors) {
+      try {
+        const count = document.querySelectorAll(selector).length;
+        console.log(`  ${selector}: ${count} elements`);
+      } catch (e) {
+        console.log(`  ${selector}: ERROR (${e.message})`);
+      }
     }
   }
 
@@ -774,12 +794,14 @@ class ContentScriptManager {
 
       // Setup message listener for popup
       chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-        if (request.action === 'getBlockedCount') {
-          const blockedPosts = document.querySelectorAll('[data-bt-blocked="true"]').length;
-          sendResponse({ blockedCount: blockedPosts });
-          return false; // Don't keep the message channel open
+        try {
+          if (request.action === 'getBlockedCount') {
+            const blockedPosts = document.querySelectorAll('[data-bt-blocked="true"]').length;
+            sendResponse({ blockedCount: blockedPosts });
+          }
+        } catch (error) {
+          console.error('[block-twitter] Error handling message:', error);
         }
-        return false;
       });
 
       console.log('[block-twitter] Content script initialized successfully');
