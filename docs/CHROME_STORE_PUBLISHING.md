@@ -486,25 +486,104 @@ ls -la /tmp/test-block-twitter/manifest.json  # 应该直接在根目录
 - Small tile (440×280) — 搜索结果用
 - Large tile (1400×560) — Featured 栏用
 
-#### 4.2.3 隐私和权限
+#### 4.2.3 Privacy practices 标签页（最容易漏填，Submit 按钮灰掉的主因）
 
-**四个关键问题**（往下滚找到"Privacy"部分）：
+> 💡 **首次上架的人 90% 会在这里卡住**。点 "Submit for review" 时弹窗 "Unable to publish"，最多会列出 8 项缺失，对应关系如下：
 
-| 问题 | 本扩展的答案 |
-|------|-------------|
-| Does this extension collect or share user data? | ❌ **No** |
-| Does it install any remotely hosted code that is not from the official store? | ❌ **No** |
-| Will you be using this extension to implement a single purpose? | ✅ **Yes** |
-| Does your extension comply with our developer program policies? | ✅ **Yes** |
+| 弹窗提示 | 在哪里填 | 本章节 |
+|---------|---------|--------|
+| A justification for host permission use is required | Privacy practices | 4.2.3.② |
+| A justification for scripting is required | Privacy practices | 4.2.3.② |
+| A justification for storage is required | Privacy practices | 4.2.3.② |
+| A justification for remote code use is required | Privacy practices | 4.2.3.② |
+| The single purpose description is required | Privacy practices | 4.2.3.① |
+| Certify that your data usage complies with... | Privacy practices | 4.2.3.③ |
+| You must provide a contact email | **Account** 标签页 | 4.2.3.④ |
+| You must verify your contact email | **Account** 标签页 | 4.2.3.④ |
 
-**"Single purpose description"字段**（300 字符以内）：
+##### ① Single purpose description（必填）
+
+描述扩展的**单一用途**，300 字符以内。模板：
+
 ```
-This extension helps users filter X/Twitter content by blocking users 
-whose posts match specified keywords. Offers two modes: local CSS hiding 
-or X's native block feature. All data stored locally, zero tracking.
+block-twitter helps users filter their X/Twitter timeline by automatically 
+detecting posts that contain user-defined keywords and providing one-click 
+options to either locally hide the author or trigger X's native block. 
+All data is stored locally in the browser; nothing is sent to any server.
 ```
 
-#### 4.2.4 扩展可见性和分发
+##### ② Permission justifications（每个权限一段）
+
+每条 manifest 里声明的权限都要一段说明，审核员会对照代码核实。**务必写得具体、可验证**。
+
+**`storage` justification**
+```
+Used to persist the user's keyword list and hidden-user list locally via 
+chrome.storage.local, so configuration survives across browser sessions 
+and syncs between tabs. No data leaves the device.
+```
+
+**`scripting` justification**
+```
+Used to inject the content script into x.com and twitter.com pages so the 
+extension can scan visible posts for user-defined keywords, mark matches, 
+and expose Hide/Block buttons on the post UI.
+```
+
+**Host permission justification**（⚠️ 见下文 in-depth review 说明）
+```
+host_permissions are limited to https://x.com/* and https://twitter.com/*, 
+which are the only sites where this extension operates. The content script 
+reads DOM nodes of visible timeline posts to detect user-defined keywords, 
+and (on user click) invokes X's native block menu. No network requests are 
+made to these hosts from the extension itself; no page content is exfiltrated 
+or stored beyond the local keyword/hidden-user lists.
+```
+
+**Remote code justification**
+- 如果页面提供下拉选项 → 选 **"No, I am not using remote code"**，无需文字
+- 如果必须填文字：
+```
+This extension does not use or load any remote code. All JavaScript and 
+CSS is bundled inside the extension package. The "URL import" feature only 
+fetches plain-text keyword lists (never code) via fetch() on user request.
+```
+
+> ⚠️ **Host Permission 会触发 in-depth review**：声明了 `host_permissions` 的扩展，Google 会走更严格的人工审核，通常 **2–4 周**（普通审核 1–3 天）。把域名限制到最小范围（例如 `https://x.com/*` 而不是 `<all_urls>`）能显著缩短审核时间。见 §5.2。
+
+##### ③ Data usage 合规声明（勾选框，4 项）
+
+需要全部勾选（本扩展根本不收集数据）：
+
+- ☑ I do not sell or transfer user data to third parties...
+- ☑ I do not use or transfer user data for purposes unrelated to my item's single purpose
+- ☑ I do not use or transfer user data to determine creditworthiness or for lending purposes
+- ☑ **I certify that my data usage complies with the Developer Program Policies**
+
+##### ④ Account 标签页：Contact email
+
+1. 左上角头像 → **Account**
+2. 填写 **Contact email**（必须是你能收信的邮箱）
+3. 点 **Verify** → 去邮箱点确认链接
+
+> 这两项不在 Privacy practices 里，是独立的 Account 页面，容易被忽略。
+
+#### 4.2.4 Test instructions（可选但强烈推荐）
+
+左侧菜单 **Access → Test instructions**。声明了 host permission 进入 in-depth review 时，审核员需要能复现扩展的功能；没有这段说明会显著提高被拒概率。模板：
+
+```
+1. Install extension and pin it.
+2. Open https://x.com/ and log in.
+3. Click the extension icon → "Open Settings".
+4. Add a test keyword, e.g. "crypto".
+5. Return to x.com timeline — posts containing "crypto" show an 
+   orange left border and a "⚠ 1 keyword" badge next to the username.
+6. Click "Hide User" on a marked post → the user is hidden locally.
+7. Click "🚫 Block(X)" → X's native block confirmation dialog appears.
+```
+
+#### 4.2.5 扩展可见性和分发
 
 **可见性**选项：
 - **Public**（推荐）— 所有用户可在商店搜索到
@@ -520,12 +599,16 @@ or X's native block feature. All data stored locally, zero tracking.
 □ 名称和简短描述填写完整
 □ 详细描述清晰、包含功能列表和隐私说明
 □ 128×128 图标已上传
-□ 至少 1 张截图已上传（推荐 3 张）
-□ 分类选择正确（Productivity）
+□ 至少 1 张截图已上传（推荐 3 张），尺寸 1280×800 或 640×400
+□ 分类选择正确（Productivity / Tools）
 □ 语言选择合理
-□ 四个隐私问题都正确回答
-□ Single purpose description 填写清楚
-□ 可见性设置为 Public
+□ Privacy practices：Single purpose description 已填
+□ Privacy practices：每个权限（storage / scripting / host / remote code）都有 justification
+□ Privacy practices：4 项 data usage 声明全部勾选
+□ Account：Contact email 已填且已点 Verify 通过
+□ Access → Test instructions 已填（有 host permission 时强烈推荐）
+□ Distribution：可见性设置为 Public
+□ Distribution：Regions 已选
 □ 价格设置为 Free
 □ 没有拼写错误或链接错误
 □ GitHub 链接（如有）能正确访问
@@ -592,12 +675,35 @@ or X's native block feature. All data stored locally, zero tracking.
 
 | 情况 | 预计时间 |
 |------|---------|
-| **首次提交新扩展** | 3-7 个工作日（常见） |
-| 审核高峰期（年末） | 7-14 个工作日 |
+| 首次提交、无 host permission | 3-7 个工作日 |
+| **首次提交、有 host permission**（⚠️ block-twitter 属于此类） | **2-4 周**（in-depth review） |
+| 审核高峰期（年末） | 在上述基础上再加 1 周 |
 | 更新已发布的扩展 | 1-3 个工作日 |
-| 涉及敏感权限（`tabs` 等） | 可能延长 1-2 周 |
+| 涉及更敏感权限（`tabs`、`webRequest`、`<all_urls>` 等） | 2-6 周 |
 
 > **提示**：周末和节假日 Google 不工作，不算在审核时间里
+
+#### ⚠️ Host Permission 与 In-depth Review
+
+上传包含 `host_permissions` 的 ZIP 后，开发者控制台通常会出现提示：
+
+> *"Due to the Host Permission, your extension may require an in-depth review which will delay publishing."*
+
+**这是标准警告，不是错误。** 说明和影响：
+
+| 维度 | 普通审核 | In-depth review |
+|------|---------|-----------------|
+| 审核时间 | 1-3 个工作日 | **通常 2-4 周** |
+| 审核内容 | 基础政策检查 | 逐行代码审计 + 权限合理性 |
+| 沟通频率 | 很少 | 可能邮件追问 |
+| 上线后限制 | 无 | **无**（通过后完全一样） |
+
+**缩短审核时间的 4 条建议**：
+
+1. **精确限定 host 域名**：`https://x.com/*` + `https://twitter.com/*` 远比 `<all_urls>` 或 `*://*/*` 快
+2. **Permission justification 写具体**：说清"读哪些 DOM、何时读、读完做什么、是否外传"（见 §4.2.3.②）
+3. **认真填 Access → Test instructions**：审核员复现不了功能就容易拒（见 §4.2.4）
+4. **别频繁重传 ZIP**：审核期内更新会重置排队
 
 ### 5.3 ✅ 审核通过（最好的情况）
 
