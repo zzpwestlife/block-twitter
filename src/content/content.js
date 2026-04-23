@@ -765,17 +765,40 @@ class BatchBlockToolbar {
 
     let ok = 0;
     for (const username of selected) {
-      // Find the post element that has the true block button for this user
-      const trueBlockBtn = document.querySelector(`.bt-true-block-button[data-username="${username}"]`);
-      const postEl = trueBlockBtn?.closest('article');
-      if (postEl) {
+      try {
+        // Find the post element that has the true block button for this user
+        const trueBlockBtn = document.querySelector(`.bt-true-block-button[data-username="${username}"]`);
+        const postEl = trueBlockBtn?.closest('article');
+
+        if (!postEl) {
+          console.warn('[block-twitter] Could not find post element for user:', username);
+          continue;
+        }
+
         const success = await TrueBlocker.block(postEl, username);
         if (success) {
-          await this.blockingManager.blockUser(username);
-          ok++;
+          try {
+            await this.blockingManager.blockUser(username);
+            ok++;
+            console.log('[block-twitter] Successfully blocked user:', username);
+          } catch (err) {
+            console.error('[block-twitter] Error saving blocked user:', username, err);
+          }
+        } else {
+          console.warn('[block-twitter] Failed to block user:', username);
         }
-        // Small gap between blocks so X doesn't rate-limit
-        await new Promise(r => setTimeout(r, 500));
+
+        // Larger gap between blocks: ensure menu closes before next attempt
+        // Also gives X.com time to process the block
+        await new Promise(r => setTimeout(r, 800));
+
+        // Close any lingering menu
+        const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true });
+        document.dispatchEvent(escapeEvent);
+      } catch (error) {
+        console.error('[block-twitter] Error in batch block for user:', username, error);
+        // Continue with next user on error
+        continue;
       }
     }
 
@@ -1145,75 +1168,138 @@ class BlockingManager {
 class TrueBlocker {
   static async block(postElement, username) {
     try {
-      const caret = postElement.querySelector('[data-testid="caret"]');
+      // Try multiple selectors to find the caret button (more robust to X's UI changes)
+      let caret = postElement.querySelector('[data-testid="caret"]');
+      if (!caret) {
+        caret = postElement.querySelector('button[aria-label*="More"]');
+      }
+      if (!caret) {
+        caret = postElement.querySelector('[role="button"][aria-label*="menu"], [role="button"][aria-label*="More"]');
+      }
+      if (!caret) {
+        caret = postElement.querySelector('button:has-text("...")');
+      }
+
       if (!caret) {
         console.warn('[block-twitter] TrueBlocker: caret button not found for', username);
         return false;
       }
+
       caret.click();
+      // Wait a bit for menu to render after click
+      await new Promise(r => setTimeout(r, 300));
 
       const menuItem = await TrueBlocker.waitForBlockMenuItem(username);
       if (!menuItem) {
         console.warn('[block-twitter] TrueBlocker: block menu item not found for', username);
         // Close any open menu by pressing Escape
-        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        const event = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true });
+        document.dispatchEvent(event);
         return false;
       }
+
+      // Scroll into view and wait before clicking
+      menuItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      await new Promise(r => setTimeout(r, 150));
       menuItem.click();
 
       const confirmed = await TrueBlocker.waitAndConfirm();
       return confirmed;
     } catch (e) {
-      console.error('[block-twitter] TrueBlocker error:', e);
+      console.error('[block-twitter] TrueBlocker.block error:', e);
       return false;
     }
   }
 
-  static waitForBlockMenuItem(username, timeout = 3000) {
+  static waitForBlockMenuItem(username, timeout = 5000) {
     return new Promise((resolve) => {
       const handle = username.replace('@', '').toLowerCase();
       const deadline = Date.now() + timeout;
+      let attempts = 0;
 
       const check = () => {
+        attempts++;
         const items = document.querySelectorAll('[role="menuitem"]');
+
+        // First pass: look for "屏蔽" or "Block" with username
         for (const item of items) {
           const text = item.textContent || '';
-          if (text.includes('屏蔽') || text.toLowerCase().includes('block')) {
-            if (text.toLowerCase().includes(handle) || text.includes(username)) {
+          const lowerText = text.toLowerCase();
+
+          // Check if this is a block menu item
+          const hasBlockKeyword = text.includes('屏蔽') || lowerText.includes('block');
+          if (!hasBlockKeyword) continue;
+
+          // Check if username is in the text (flexible matching)
+          const hasUsername = text.includes(username) ||
+                             text.includes('@' + handle) ||
+                             lowerText.includes(handle) ||
+                             text.includes(handle);
+
+          if (hasUsername) {
+            console.log('[block-twitter] Found block menu item for', username, ':', text);
+            resolve(item);
+            return;
+          }
+        }
+
+        // Second pass: if no username match, look for any block menu item
+        // (some X UI variations don't include username in the menu text)
+        if (attempts === 1) {
+          for (const item of items) {
+            const text = item.textContent || '';
+            if (text.includes('屏蔽') || text.toLowerCase().includes('block')) {
+              console.log('[block-twitter] Found generic block menu item (no username match):', text);
               resolve(item);
               return;
             }
           }
         }
+
         if (Date.now() < deadline) {
-          setTimeout(check, 100);
+          setTimeout(check, 150);
         } else {
+          console.warn('[block-twitter] TrueBlocker: timeout waiting for block menu item after', attempts, 'attempts');
           resolve(null);
         }
       };
-      setTimeout(check, 200);
+
+      // Longer initial delay to allow menu to fully render
+      setTimeout(check, 400);
     });
   }
 
-  static waitAndConfirm(timeout = 3000) {
+  static waitAndConfirm(timeout = 4000) {
     return new Promise((resolve) => {
       const deadline = Date.now() + timeout;
 
       const check = () => {
-        const confirmBtn = document.querySelector('[data-testid="confirmationSheetConfirm"]');
+        // Try multiple selectors for confirmation button
+        let confirmBtn = document.querySelector('[data-testid="confirmationSheetConfirm"]');
+        if (!confirmBtn) {
+          confirmBtn = document.querySelector('button[aria-label*="Block"]');
+        }
+        if (!confirmBtn) {
+          confirmBtn = document.querySelector('[role="button"][aria-label*="Block"]');
+        }
+
         if (confirmBtn) {
+          console.log('[block-twitter] Found confirmation button, clicking...');
           confirmBtn.click();
           resolve(true);
           return;
         }
+
         if (Date.now() < deadline) {
-          setTimeout(check, 100);
+          setTimeout(check, 150);
         } else {
           // No confirm dialog appeared — some accounts may skip it, treat as success
+          console.log('[block-twitter] No confirmation dialog, treating as success');
           resolve(true);
         }
       };
-      setTimeout(check, 300);
+
+      setTimeout(check, 400);
     });
   }
 }
@@ -1275,7 +1361,9 @@ class ContentScriptManager {
           }
         } catch (error) {
           console.error('[block-twitter] Error handling message:', error);
+          sendResponse({ blockedCount: 0 });
         }
+        return false; // Explicitly indicate synchronous response
       });
 
       console.log('[block-twitter] Content script initialized successfully');

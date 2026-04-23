@@ -46,6 +46,7 @@
 - **[使用指南](docs/USER_GUIDE.md)** — 完整功能说明和常见问题
 - **[问题排查](docs/TROUBLESHOOTING.md)** — 开发过程遇到的 6 个问题及解决方案
 - **[发布指南](docs/CHROME_STORE_PUBLISHING.md)** — 如何上架到 Chrome Web Store
+- **[更新指南](docs/UPDATING_IN_CHROME_STORE.md)** — 如何在应用商店更新已发布的插件
 
 ---
 
