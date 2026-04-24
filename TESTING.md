@@ -108,6 +108,35 @@ You should now see the extension loaded with a red icon in your Chrome toolbar.
 - [ ] Very long keyword (100+ chars) → Should be truncated or rejected with message
 - [ ] Add >1000 keywords → Should warn user and limit to 1000
 
+### 11. True Block Fallback Validation
+- [ ] Trigger `true block` on a matched post and verify inline menu path first
+- [ ] Simulate inline menu failure and verify profile page fallback second
+- [ ] Simulate profile failure and verify local hide fallback third
+- [ ] Confirm explicit message appears: `True block failed on X UI. Applied local hide fallback.`
+
+## 🚦 v0.2.0-beta Rollout Runbook
+
+### v0.2.0-beta checklist
+- [ ] `npm run build` passes with no new warnings
+- [ ] Smoke test on fresh Chrome profile (install, keyword match, true block click)
+- [ ] Validate fallback sequence on at least 3 accounts/timelines
+- [ ] Verify Options page shows expected behavior after fallback
+- [ ] Tag release artifact and record test date + tester initials
+
+### failure-code monitoring checklist
+- [ ] Collect failure-code counts from telemetry/log exports after beta deploy
+- [ ] Review per-code trend daily for first 3 days
+- [ ] Alert when one code exceeds baseline by >2x for two consecutive checks
+- [ ] Confirm which stage failed (`inline_menu`, `profile_page`, `local_hide_fallback`)
+- [ ] Document mitigation action and owner in release notes
+
+### rollback (legacy toggle) instructions
+1. Open extension settings and enable `legacy toggle` for block flow.
+2. Reload extension in `chrome://extensions/` and refresh active X tabs.
+3. Re-test one known failing account to confirm fallback is bypassed.
+4. Announce rollback status and timestamp to beta channel.
+5. Keep monitoring failure codes until stable, then decide re-rollout window.
+
 ## 🐛 Debugging
 
 ### Check DevTools

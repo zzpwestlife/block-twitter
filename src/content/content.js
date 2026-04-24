@@ -27,15 +27,38 @@ class KeywordMatcher {
 
       const lowercaseKeyword = keyword.toLowerCase();
 
-      // Check if keyword contains CJK (Chinese, Japanese, Korean) characters
-      const isCJK = /[一-鿿぀-ゟ゠-ヿ가-힯]/.test(lowercaseKeyword);
+      // For non-ASCII characters (CJK, emoji, etc.), use simple substring matching.
+      // \b word boundaries only work for ASCII [a-zA-Z0-9_] and will never fire
+      // around emoji or CJK characters (all are \W), causing silent misses.
+      const hasNonAscii = /[^\x00-\x7F]/.test(keyword);
 
       let matches = false;
-      if (isCJK) {
-        // For CJK text, use simple substring matching (no word boundaries in CJK)
-        matches = lowercaseText.includes(lowercaseKeyword);
+      if (hasNonAscii) {
+        // Normalize both sides before comparing:
+        // 1. Strip invisible/obfuscation Unicode that spammers insert between emoji
+        //    to defeat keyword matching (e.g. Tibetan combining vowels U+0F00-0FFF,
+        //    zero-width spaces, variation selectors, combining diacriticals).
+        //    ZWJ U+200D is kept to preserve compound emoji like 👨‍👩‍👧‍👦.
+        // 2. Normalize whitespace around newlines (Twitter <br> may have surrounding spaces).
+        // Strip invisible obfuscation characters that spammers insert between emoji
+        // to defeat keyword matching. ZWJ (U+200D) is kept for compound emoji (👨‍👩‍👧‍👦).
+        // Ranges stripped:
+        //   U+0300-U+036F  Combining diacritical marks
+        //   U+0F00-U+0FFF  Tibetan block (U+0F74, U+0F80 used as invisible separators)
+        //   U+200B         Zero-width space
+        //   U+200C         Zero-width non-joiner (ZWNJ)
+        //   U+200E-U+200F  LTR / RTL marks
+        //   U+2060-U+206F  Word joiner and other invisible format chars
+        //   U+FE00-U+FE0F  Variation selectors 1-16
+        const stripObfuscation = (s) => s.replace(
+          /[̀-ͯༀ-࿿​‌‎‏⁠-⁯︀-️]/g,
+          ''
+        );
+        const normalize = (s) =>
+          stripObfuscation(s).replace(/[^\S\n]*\n[^\S\n]*/g, '\n');
+        matches = normalize(lowercaseText).includes(normalize(lowercaseKeyword));
       } else {
-        // For English/other languages, use word boundary matching
+        // For pure ASCII keywords, use word boundary matching
         const regex = new RegExp(`\\b${this.escapeRegex(lowercaseKeyword)}\\b`, 'gi');
         matches = regex.test(lowercaseText);
       }
@@ -62,6 +85,8 @@ class KeywordMatcher {
         text += node.textContent;
       } else if (node.nodeName === 'IMG' && node.alt) {
         text += node.alt;
+      } else if (node.nodeName === 'BR') {
+        text += '\n';
       } else {
         for (const child of node.childNodes) {
           walk(child);
@@ -764,18 +789,33 @@ class BatchBlockToolbar {
     }
 
     let ok = 0;
+    let idx = 0;
     for (const username of selected) {
+      idx++;
+      if (btn) btn.textContent = `屏蔽中 ${idx}/${selected.length}...`;
+
       try {
-        // Find the post element that has the true block button for this user
+        // Re-query each iteration — earlier blocks may have shifted the DOM.
+        // Prefer [data-testid="tweet"] over bare article: bare article matches quoted-tweet
+        // wrappers, which causes us to pick up the wrong (inner) caret button.
         const trueBlockBtn = document.querySelector(`.bt-true-block-button[data-username="${username}"]`);
-        const postEl = trueBlockBtn?.closest('article');
+        const postEl = trueBlockBtn?.closest('[data-testid="tweet"]')
+                    ?? trueBlockBtn?.closest('article');
 
         if (!postEl) {
           console.warn('[block-twitter] Could not find post element for user:', username);
           continue;
         }
 
-        const success = await TrueBlocker.block(postEl, username);
+        let success = await TrueBlocker.block(postEl, username);
+
+        // Single retry on failure — menu might not have rendered in time
+        if (!success) {
+          console.log('[block-twitter] Retrying block for:', username);
+          await new Promise(r => setTimeout(r, 1000));
+          success = await TrueBlocker.block(postEl, username);
+        }
+
         if (success) {
           try {
             await this.blockingManager.blockUser(username);
@@ -785,19 +825,20 @@ class BatchBlockToolbar {
             console.error('[block-twitter] Error saving blocked user:', username, err);
           }
         } else {
-          console.warn('[block-twitter] Failed to block user:', username);
+          console.warn('[block-twitter] Failed to block user (after retry):', username);
         }
 
-        // Larger gap between blocks: ensure menu closes before next attempt
-        // Also gives X.com time to process the block
-        await new Promise(r => setTimeout(r, 800));
+        // Pause between users: let X process the block and reset UI state
+        await new Promise(r => setTimeout(r, 1500));
 
-        // Close any lingering menu
-        const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true });
-        document.dispatchEvent(escapeEvent);
+        // Every 5 successful blocks take a longer break to avoid X rate-limiting
+        if (ok > 0 && ok % 5 === 0) {
+          console.log('[block-twitter] Rate-limit pause after', ok, 'blocks...');
+          if (btn) btn.textContent = `暂停防限速 (${ok}/${selected.length})...`;
+          await new Promise(r => setTimeout(r, 4000));
+        }
       } catch (error) {
         console.error('[block-twitter] Error in batch block for user:', username, error);
-        // Continue with next user on error
         continue;
       }
     }
@@ -1168,47 +1209,115 @@ class BlockingManager {
 class TrueBlocker {
   static async block(postElement, username) {
     try {
-      // Try multiple selectors to find the caret button (more robust to X's UI changes)
-      let caret = postElement.querySelector('[data-testid="caret"]');
-      if (!caret) {
-        caret = postElement.querySelector('button[aria-label*="More"]');
+      // 1. Close any lingering menu/dialog from a previous operation
+      document.dispatchEvent(new KeyboardEvent('keydown', {
+        key: 'Escape', code: 'Escape', bubbles: true, cancelable: true
+      }));
+      await new Promise(r => setTimeout(r, 250));
+
+      // 2. Scroll post into viewport — Twitter may virtualise off-screen articles
+      postElement.scrollIntoView({ behavior: 'instant', block: 'center' });
+      await new Promise(r => setTimeout(r, 300));
+
+      // 3. Simulate hover with real coordinates so Twitter's React handlers fire correctly
+      const rect = postElement.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      for (const type of ['pointerover', 'pointerenter', 'mouseover', 'mouseenter', 'mousemove']) {
+        postElement.dispatchEvent(new MouseEvent(type, {
+          bubbles: true, cancelable: true, clientX: cx, clientY: cy
+        }));
       }
-      if (!caret) {
-        caret = postElement.querySelector('[role="button"][aria-label*="menu"], [role="button"][aria-label*="More"]');
-      }
-      if (!caret) {
-        caret = postElement.querySelector('button:has-text("...")');
-      }
+      await new Promise(r => setTimeout(r, 300));
+
+      // 4. Find the caret that belongs to THIS tweet, not to a nested quoted-tweet article.
+      //    querySelectorAll returns DOM-order — the inner article's caret comes first,
+      //    so we must skip any caret whose nearest article ancestor != postElement.
+      let caret = TrueBlocker.findDirectCaret(postElement);
+      if (!caret) caret = postElement.querySelector('button[aria-label*="More"]');
+      if (!caret) caret = postElement.querySelector('[role="button"][aria-label*="More"]');
 
       if (!caret) {
         console.warn('[block-twitter] TrueBlocker: caret button not found for', username);
         return false;
       }
 
+      // Hover over caret with coordinates, then click
+      const cr = caret.getBoundingClientRect();
+      caret.dispatchEvent(new MouseEvent('mouseover', {
+        bubbles: true, clientX: cr.left + cr.width / 2, clientY: cr.top + cr.height / 2
+      }));
+      await new Promise(r => setTimeout(r, 100));
       caret.click();
-      // Wait a bit for menu to render after click
-      await new Promise(r => setTimeout(r, 300));
+      // Give menu more time to fully render
+      await new Promise(r => setTimeout(r, 600));
 
       const menuItem = await TrueBlocker.waitForBlockMenuItem(username);
       if (!menuItem) {
         console.warn('[block-twitter] TrueBlocker: block menu item not found for', username);
-        // Close any open menu by pressing Escape
-        const event = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true, cancelable: true });
-        document.dispatchEvent(event);
+        document.dispatchEvent(new KeyboardEvent('keydown', {
+          key: 'Escape', code: 'Escape', bubbles: true, cancelable: true
+        }));
+        await new Promise(r => setTimeout(r, 300));
         return false;
       }
 
-      // Scroll into view and wait before clicking
-      menuItem.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-      await new Promise(r => setTimeout(r, 150));
+      menuItem.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+      await new Promise(r => setTimeout(r, 200));
       menuItem.click();
 
       const confirmed = await TrueBlocker.waitAndConfirm();
+
+      // 5. Wait for confirmation dialog to fully close before returning
+      if (confirmed) {
+        await TrueBlocker.waitForDialogClose();
+      }
+
       return confirmed;
     } catch (e) {
       console.error('[block-twitter] TrueBlocker.block error:', e);
       return false;
     }
+  }
+
+  // Return the caret button that directly belongs to postElement,
+  // skipping any caret inside a nested quoted-tweet / reply article.
+  static findDirectCaret(postElement) {
+    const carets = postElement.querySelectorAll('[data-testid="caret"]');
+    for (const c of carets) {
+      // Walk ancestors up to postElement; if we hit another article first, this
+      // caret belongs to a nested tweet — skip it.
+      let el = c.parentElement;
+      let nested = false;
+      while (el && el !== postElement) {
+        if (el.tagName === 'ARTICLE' || el.getAttribute?.('data-testid') === 'tweet') {
+          nested = true;
+          break;
+        }
+        el = el.parentElement;
+      }
+      if (!nested) return c;
+    }
+    return null;
+  }
+
+  // Wait until the confirmation sheet disappears from the DOM
+  static waitForDialogClose(timeout = 3000) {
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeout;
+      const check = () => {
+        if (!document.querySelector('[data-testid="confirmationSheetConfirm"]')) {
+          resolve();
+          return;
+        }
+        if (Date.now() < deadline) {
+          setTimeout(check, 150);
+        } else {
+          resolve(); // timed out — proceed anyway
+        }
+      };
+      setTimeout(check, 200);
+    });
   }
 
   static waitForBlockMenuItem(username, timeout = 5000) {
@@ -1439,6 +1548,8 @@ class ContentScriptManager {
 
       // Extract text content from post, including emoji rendered as <img alt="...">
       const postText = KeywordMatcher.extractPostText(postElement);
+      // Debug: print extracted text as JSON so newlines/whitespace are visible
+      console.log('[block-twitter] extracted text (JSON):', JSON.stringify(postText.slice(0, 200)));
 
       // Check if post matches any keywords
       const matchedKeywords = KeywordMatcher.match(postText, this.keywords);

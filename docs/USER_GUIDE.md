@@ -139,6 +139,17 @@
 > - 页面网络加载过慢，菜单未能及时出现
 > - 你已经屏蔽过该用户
 
+### 5.1 `true block` fallback 顺序（v0.2）
+
+v0.2 开始，原生屏蔽失败时会按固定顺序自动降级（fallback），避免用户“点击无反应”：
+
+1. **Inline menu first**：先尝试帖子内 `...` 菜单完成原生屏蔽。
+2. **Profile page fallback second**：若帖子菜单不可交互，转到用户 Profile 页面重试屏蔽。
+3. **Local hide fallback third**：若仍失败，则本地隐藏该用户帖子并提示：
+   `True block failed on X UI. Applied local hide fallback.`
+
+> 说明：第 3 步只影响本地显示，不会在 X 平台产生真实屏蔽记录。
+
 ---
 
 ## 6. 批量操作
@@ -259,6 +270,14 @@
 ---
 
 ## 10. 常见问题
+
+### Q: `true block` 为什么有时会变成 fallback？
+
+A: X 页面结构和交互状态在不同账号/实验流量下可能不同。扩展会优先执行真实屏蔽，失败后才进入 fallback 链路（inline → profile → local hide）以保证可用性。
+
+### Q: 我看到 local hide fallback 提示，代表什么？
+
+A: 代表真实屏蔽未成功，但扩展已自动执行本地隐藏，确保当前时间线可立即清理。你稍后可在目标用户资料页再次尝试真实屏蔽。
 
 ### Q：添加关键词后页面没有橙色标记？
 

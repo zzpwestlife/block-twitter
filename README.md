@@ -22,6 +22,25 @@
 
 ---
 
+## 🧭 v0.2 true block fallback 行为
+
+为提高稳定性，`true block` 按钮在 v0.2 按以下顺序自动降级（fallback）：
+
+1. **Inline menu first**：优先在时间线帖子内打开 `...` 菜单并执行原生屏蔽。
+2. **Profile page fallback second**：若帖子内菜单不可用，自动跳转/打开用户资料页后再执行屏蔽流程。
+3. **Local hide fallback third**：若前两步都失败，执行本地隐藏并给出明确提示：  
+   `True block failed on X UI. Applied local hide fallback.`
+
+---
+
+## 🚀 v0.2.0-beta rollout / rollback 摘要
+
+- 发布前执行 `v0.2.0-beta checklist`（构建、手测、关键路径验证）。
+- 发布后跟踪 `failure-code monitoring checklist`（按失败码聚合，观察 inline/profile/local-hide 三段失败率）。
+- 必要时执行 `legacy toggle rollback`：在设置中启用旧流程开关，回退到仅本地隐藏路径，降低用户影响面。
+
+---
+
 ## ⚡ 快速开始
 
 ### 安装
@@ -102,7 +121,8 @@ MIT License — 详见 [LICENSE](LICENSE) 文件
 ## 🚀 项目状态
 
 - **v0.1.0** (Beta) — 核心功能完成，稳定可用
-- 下个版本计划：正则表达式支持、定时启用/禁用、用户统计
+- **v0.2.0-beta** — 增强 `true block` 稳定性与 fallback 机制，附带 rollout/rollback 运行手册
+- 下个正式版计划：正则表达式支持、定时启用/禁用、用户统计
 
 ---
 

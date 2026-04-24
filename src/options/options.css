@@ -357,6 +357,18 @@ header h1 {
     }
 }
 
+.nl-indicator {
+    display: inline-block;
+    padding: 0 3px;
+    margin: 0 1px;
+    background: #e5e7eb;
+    color: #6b7280;
+    border-radius: 3px;
+    font-size: 11px;
+    font-family: monospace;
+    vertical-align: middle;
+}
+
 @media (max-width: 480px) {
     .input-group {
         flex-direction: column;

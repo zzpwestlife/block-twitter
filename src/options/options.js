@@ -112,7 +112,9 @@ function onStorageChanged(changes, areaName) {
  */
 function addKeyword() {
     const input = document.getElementById('keywordInput');
-    const keyword = input.value.trim();
+    // Support \n as escape sequence so users can enter multi-line keywords
+    // (e.g. "💛🌿\n🐷😊😄" becomes a keyword with an actual newline)
+    const keyword = input.value.trim().replace(/\\n/g, '\n');
 
     // Validate input
     if (!keyword) {
@@ -191,8 +193,10 @@ function renderKeywords() {
     filteredKeywords.forEach((keyword) => {
         const item = document.createElement('div');
         item.className = 'keyword-item';
+        // Show actual newlines as a visible ↵ indicator so multi-line keywords are readable
+        const displayText = escapeHtml(keyword).replace(/\n/g, '<span class="nl-indicator" title="newline">↵</span>');
         item.innerHTML = `
-            <span class="keyword-text">${escapeHtml(keyword)}</span>
+            <span class="keyword-text">${displayText}</span>
             <button class="btn btn-small btn-delete">Delete</button>
         `;
 
