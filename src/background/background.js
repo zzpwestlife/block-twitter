@@ -369,6 +369,8 @@ function exportData() {
         const exportObj = {
           keywords: data.keywords || [],
           blockedUsers: data.blockedUsers || {},
+          falsePositiveUsers: data.falsePositiveUsers || {},
+          aiSpamUsers: data.aiSpamUsers || {},
           stats: data.stats || { totalBlocked: 0 },
           exportedAt: new Date().toISOString()
         };
@@ -427,6 +429,26 @@ function importData(jsonString) {
         });
       }
 
+      const sanitizedFalsePositives = {};
+      if (importedData.falsePositiveUsers && typeof importedData.falsePositiveUsers === 'object') {
+        Object.entries(importedData.falsePositiveUsers).forEach(([username, timestamp]) => {
+          if (username.trim().length > 0) {
+            sanitizedFalsePositives[username.trim()] = timestamp;
+          }
+        });
+      }
+
+      const sanitizedAISpamUsers = {};
+      if (importedData.aiSpamUsers && typeof importedData.aiSpamUsers === 'object') {
+        Object.entries(importedData.aiSpamUsers).forEach(([username, timestamp]) => {
+          const u = username.trim();
+          // Don't re-import AI spam users that the user marked as false positives
+          if (u.length > 0 && !sanitizedFalsePositives[u]) {
+            sanitizedAISpamUsers[u] = timestamp;
+          }
+        });
+      }
+
       // Limit keywords to 1000
       const limitedKeywords = sanitizedKeywords.slice(0, 1000);
 
@@ -437,6 +459,8 @@ function importData(jsonString) {
       const dataToStore = {
         keywords: limitedKeywords,
         blockedUsers: sanitizedBlockedUsers,
+        falsePositiveUsers: sanitizedFalsePositives,
+        aiSpamUsers: sanitizedAISpamUsers,
         stats
       };
 
@@ -460,6 +484,72 @@ function importData(jsonString) {
       });
     }
   });
+}
+
+/**
+ * Classify posts as spam/ok using an external LLM API.
+ * Supports Anthropic Messages API and any OpenAI-compatible endpoint.
+ */
+async function handleAIClassify({ posts, baseUrl, apiKey, model, systemPrompt }) {
+  const postsText = posts
+    .map((p, i) => {
+      const name = p.displayName ? `${p.displayName} (@${p.username.replace('@', '')})` : p.username;
+      return `[${i + 1}] 账号: ${name}\n    内容: ${p.text.slice(0, 200)}`;
+    })
+    .join('\n');
+  const userMsg = `对以下帖子分类，每行格式 "序号: spam或ok":\n\n${postsText}`;
+
+  let text = '';
+  try {
+    const isAnthropic = baseUrl.includes('anthropic.com');
+    if (isAnthropic) {
+      const url = baseUrl.replace(/\/?$/, '') + '/messages';
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: model || 'claude-haiku-4-5-20251001',
+          max_tokens: 200,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userMsg }],
+        }),
+      });
+      const data = await res.json();
+      text = data.content?.[0]?.text ?? '';
+    } else {
+      const url = baseUrl.replace(/\/?$/, '') + '/chat/completions';
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: model || 'gpt-4o-mini',
+          max_tokens: 200,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMsg },
+          ],
+        }),
+      });
+      const data = await res.json();
+      text = data.choices?.[0]?.message?.content ?? '';
+    }
+  } catch (err) {
+    console.error('[block-twitter] AI API error:', err);
+    return { success: false, error: err.message };
+  }
+
+  const labels = posts.map((_, i) => {
+    const line = text.split('\n').find(l => l.trimStart().startsWith(`${i + 1}:`));
+    return line?.toLowerCase().includes('spam') ? 'spam' : 'ok';
+  });
+  return { success: true, labels };
 }
 
 /**
@@ -517,6 +607,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       importData(payload.jsonString).then(response => {
         sendResponse(response);
       });
+      break;
+
+    case 'aiClassify':
+      handleAIClassify(payload).then(sendResponse);
       break;
 
     default:

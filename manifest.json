@@ -9,7 +9,8 @@
   ],
   "host_permissions": [
     "https://x.com/*",
-    "https://twitter.com/*"
+    "https://twitter.com/*",
+    "https://*/*"
   ],
   "content_scripts": [
     {

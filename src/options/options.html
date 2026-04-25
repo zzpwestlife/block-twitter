@@ -13,6 +13,19 @@
         </header>
 
         <main class="content">
+            <!-- General Settings Section -->
+            <section class="section general-section">
+                <div class="section-header">
+                    <h2>General</h2>
+                </div>
+                <div class="general-settings">
+                    <label class="toggle-row">
+                        <span class="toggle-label-text">在每条帖子旁显示手动标记按钮（🚩）</span>
+                        <input type="checkbox" id="showManualClassifyBtn" class="toggle-checkbox">
+                    </label>
+                </div>
+            </section>
+
             <!-- Keywords Management Section -->
             <section class="section keywords-section">
                 <div class="section-header">
@@ -60,6 +73,69 @@
 
                 <div id="keywordsList" class="keywords-list">
                     <!-- Keywords will be populated here -->
+                </div>
+            </section>
+
+            <!-- AI Detection Settings Section -->
+            <section class="section ai-section">
+                <div class="section-header">
+                    <h2>AI 智能识别</h2>
+                    <p class="counter" id="aiStatusBadge">检测中...</p>
+                </div>
+
+                <div class="ai-settings">
+                    <div class="ai-presets">
+                        <span class="ai-presets-label">快速填入：</span>
+                        <button class="btn btn-secondary btn-small" id="presetOpenAI">OpenAI</button>
+                        <button class="btn btn-secondary btn-small" id="presetClaude">Claude</button>
+                    </div>
+
+                    <div class="ai-field">
+                        <label class="ai-field-label" for="aiBaseUrl">Base URL</label>
+                        <input
+                            type="url"
+                            id="aiBaseUrl"
+                            class="input-field"
+                            placeholder="https://api.openai.com/v1"
+                        >
+                    </div>
+
+                    <div class="ai-field">
+                        <label class="ai-field-label" for="aiApiKey">API Key</label>
+                        <input
+                            type="password"
+                            id="aiApiKey"
+                            class="input-field"
+                            placeholder="sk-..."
+                            autocomplete="off"
+                        >
+                    </div>
+
+                    <div class="ai-field">
+                        <label class="ai-field-label" for="aiModel">Model</label>
+                        <input
+                            type="text"
+                            id="aiModel"
+                            class="input-field"
+                            placeholder="gpt-4o-mini"
+                        >
+                    </div>
+
+                    <div class="button-group">
+                        <button id="testAiBtn" class="btn btn-secondary">测试连接</button>
+                        <button id="saveAiBtn" class="btn btn-primary">保存 AI 设置</button>
+                    </div>
+
+                    <details class="ai-advanced">
+                        <summary>自定义提示词（高级）</summary>
+                        <textarea
+                            id="aiCustomPrompt"
+                            class="input-field ai-prompt-textarea"
+                            placeholder="留空使用内置默认提示词..."
+                            rows="6"
+                        ></textarea>
+                        <button id="saveAiPromptBtn" class="btn btn-secondary btn-small">保存提示词</button>
+                    </details>
                 </div>
             </section>
 

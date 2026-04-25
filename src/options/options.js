@@ -6,7 +6,9 @@
 // Storage keys
 const STORAGE_KEYS = {
     keywords: 'keywords',
-    blockedUsers: 'blockedUsers'
+    blockedUsers: 'blockedUsers',
+    falsePositiveUsers: 'falsePositiveUsers',
+    aiSpamUsers: 'aiSpamUsers'
 };
 
 // Constants
@@ -16,6 +18,8 @@ const TOAST_DURATION = 3000;
 // State
 let keywords = [];
 let blockedUsers = {};
+let falsePositiveUsers = {};
+let aiSpamUsers = {};
 let filteredKeywords = [];
 let filteredUsers = {};
 
@@ -62,24 +66,184 @@ function initializeOptions() {
         if (e.key === 'Enter') importFromUrl();
     });
 
+    // Setup AI settings
+    initAISettings();
+
+    // Setup general settings
+    initGeneralSettings();
+
     // Listen for storage changes
     chrome.storage.onChanged.addListener(onStorageChanged);
+}
+
+/**
+ * Initialize general settings toggles
+ */
+function initGeneralSettings() {
+    const checkbox = document.getElementById('showManualClassifyBtn');
+    chrome.storage.local.get('showManualClassifyBtn', (data) => {
+        checkbox.checked = data.showManualClassifyBtn ?? false;
+    });
+    checkbox.addEventListener('change', () => {
+        chrome.storage.local.set({ showManualClassifyBtn: checkbox.checked });
+    });
+}
+
+/**
+ * Initialize AI settings section
+ */
+function initAISettings() {
+    loadAISettings();
+
+    document.getElementById('saveAiBtn').addEventListener('click', saveAISettings);
+    document.getElementById('testAiBtn').addEventListener('click', testAIConnection);
+    document.getElementById('saveAiPromptBtn').addEventListener('click', saveAIPrompt);
+
+    document.getElementById('presetOpenAI').addEventListener('click', () => {
+        document.getElementById('aiBaseUrl').value = 'https://api.openai.com/v1';
+        document.getElementById('aiModel').value = 'gpt-4o-mini';
+    });
+
+    document.getElementById('presetClaude').addEventListener('click', () => {
+        document.getElementById('aiBaseUrl').value = 'https://api.anthropic.com/v1';
+        document.getElementById('aiModel').value = 'claude-haiku-4-5-20251001';
+    });
+}
+
+/**
+ * Load AI settings from storage
+ */
+function loadAISettings() {
+    chrome.storage.local.get(['aiBaseUrl', 'aiApiKey', 'aiModel', 'aiCustomPrompt'], (items) => {
+        if (items.aiBaseUrl) document.getElementById('aiBaseUrl').value = items.aiBaseUrl;
+        if (items.aiApiKey) document.getElementById('aiApiKey').value = items.aiApiKey;
+        if (items.aiModel) document.getElementById('aiModel').value = items.aiModel;
+        if (items.aiCustomPrompt) document.getElementById('aiCustomPrompt').value = items.aiCustomPrompt;
+    });
+
+    // Check Chrome built-in AI availability
+    const badge = document.getElementById('aiStatusBadge');
+    if (window.ai?.languageModel) {
+        window.ai.languageModel.capabilities().then((caps) => {
+            badge.textContent = caps.available !== 'no'
+                ? 'Chrome AI 可用 ✓'
+                : '需配置 API Key';
+        }).catch(() => {
+            badge.textContent = '需配置 API Key';
+        });
+    } else {
+        badge.textContent = '需配置 API Key';
+    }
+}
+
+/**
+ * Test AI API connection with a minimal request
+ */
+async function testAIConnection() {
+    const baseUrl = document.getElementById('aiBaseUrl').value.trim();
+    const apiKey = document.getElementById('aiApiKey').value.trim();
+    const model = document.getElementById('aiModel').value.trim();
+
+    if (!baseUrl || !apiKey) {
+        showToast('请先填写 Base URL 和 API Key', 'error');
+        return;
+    }
+
+    const btn = document.getElementById('testAiBtn');
+    btn.disabled = true;
+    btn.textContent = '测试中...';
+
+    try {
+        const isAnthropic = baseUrl.includes('anthropic.com');
+        let res;
+
+        if (isAnthropic) {
+            const url = baseUrl.replace(/\/?$/, '') + '/messages';
+            res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'x-api-key': apiKey,
+                    'anthropic-version': '2023-06-01',
+                    'content-type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model: model || 'claude-haiku-4-5-20251001',
+                    max_tokens: 5,
+                    messages: [{ role: 'user', content: 'Reply ok' }],
+                }),
+            });
+        } else {
+            const url = baseUrl.replace(/\/?$/, '') + '/chat/completions';
+            res = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model: model || 'gpt-4o-mini',
+                    max_tokens: 5,
+                    messages: [{ role: 'user', content: 'Reply ok' }],
+                }),
+            });
+        }
+
+        const data = await res.json();
+
+        if (!res.ok) {
+            const errMsg = data?.error?.message || data?.error?.code || `HTTP ${res.status}`;
+            showToast(`连接失败：${errMsg}`, 'error');
+        } else {
+            const reply = isAnthropic
+                ? data.content?.[0]?.text
+                : data.choices?.[0]?.message?.content;
+            showToast(`连接成功 ✓ 模型回复：${reply ?? '(空)'}`, 'success');
+        }
+    } catch (err) {
+        showToast(`连接失败：${err.message}`, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '测试连接';
+    }
+}
+
+/**
+ * Save AI API settings
+ */
+function saveAISettings() {
+    const baseUrl = document.getElementById('aiBaseUrl').value.trim();
+    const apiKey = document.getElementById('aiApiKey').value.trim();
+    const model = document.getElementById('aiModel').value.trim();
+
+    chrome.storage.local.set({ aiBaseUrl: baseUrl, aiApiKey: apiKey, aiModel: model }, () => {
+        showToast('AI 设置已保存', 'success');
+    });
+}
+
+/**
+ * Save custom AI prompt
+ */
+function saveAIPrompt() {
+    const prompt = document.getElementById('aiCustomPrompt').value.trim();
+    chrome.storage.local.set({ aiCustomPrompt: prompt }, () => {
+        showToast('提示词已保存', 'success');
+    });
 }
 
 /**
  * Load keywords and blocked users from storage
  */
 function loadStorageData() {
-    chrome.storage.local.get([STORAGE_KEYS.keywords, STORAGE_KEYS.blockedUsers], (items) => {
-        // Load keywords
+    chrome.storage.local.get(Object.values(STORAGE_KEYS), (items) => {
         keywords = items[STORAGE_KEYS.keywords] || [];
         filteredKeywords = keywords;
 
-        // Load blocked users
         blockedUsers = items[STORAGE_KEYS.blockedUsers] || {};
         filteredUsers = blockedUsers;
 
-        // Render UI
+        falsePositiveUsers = items[STORAGE_KEYS.falsePositiveUsers] || {};
+        aiSpamUsers = items[STORAGE_KEYS.aiSpamUsers] || {};
+
         renderKeywords();
         renderBlockedUsers();
         updateCounters();
@@ -104,6 +268,14 @@ function onStorageChanged(changes, areaName) {
         filteredUsers = blockedUsers;
         renderBlockedUsers();
         updateCounters();
+    }
+
+    if (changes[STORAGE_KEYS.falsePositiveUsers]) {
+        falsePositiveUsers = changes[STORAGE_KEYS.falsePositiveUsers].newValue || {};
+    }
+
+    if (changes[STORAGE_KEYS.aiSpamUsers]) {
+        aiSpamUsers = changes[STORAGE_KEYS.aiSpamUsers].newValue || {};
     }
 }
 
@@ -309,7 +481,9 @@ function exportKeywords() {
         version: 1,
         exportDate: new Date().toISOString(),
         keywords: keywords,
-        blockedUsers: blockedUsers
+        blockedUsers: blockedUsers,
+        falsePositiveUsers: falsePositiveUsers,
+        aiSpamUsers: aiSpamUsers
     };
 
     const json = JSON.stringify(data, null, 2);
@@ -372,17 +546,34 @@ function handleImportFile(event) {
             }
 
             // Handle blocked users
-            let importedUsers = data.blockedUsers || {};
+            const importedUsers = data.blockedUsers || {};
             if (typeof importedUsers === 'object' && !Array.isArray(importedUsers)) {
-                // Merge with existing blocked users
                 blockedUsers = { ...blockedUsers, ...importedUsers };
+            }
+
+            // Handle false positive users (merge, imported list wins)
+            const importedFP = data.falsePositiveUsers || {};
+            if (typeof importedFP === 'object' && !Array.isArray(importedFP)) {
+                falsePositiveUsers = { ...falsePositiveUsers, ...importedFP };
+            }
+
+            // Handle AI spam users — skip any that are in falsePositiveUsers
+            const importedSpam = data.aiSpamUsers || {};
+            if (typeof importedSpam === 'object' && !Array.isArray(importedSpam)) {
+                const sanitized = {};
+                Object.entries(importedSpam).forEach(([u, ts]) => {
+                    if (!falsePositiveUsers[u]) sanitized[u] = ts;
+                });
+                aiSpamUsers = { ...aiSpamUsers, ...sanitized };
             }
 
             // Save to storage
             chrome.storage.local.set(
                 {
                     [STORAGE_KEYS.keywords]: merged,
-                    [STORAGE_KEYS.blockedUsers]: blockedUsers
+                    [STORAGE_KEYS.blockedUsers]: blockedUsers,
+                    [STORAGE_KEYS.falsePositiveUsers]: falsePositiveUsers,
+                    [STORAGE_KEYS.aiSpamUsers]: aiSpamUsers
                 },
                 () => {
                     showToast('Import successful', 'success');

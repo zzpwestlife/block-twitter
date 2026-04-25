@@ -307,6 +307,7 @@ class DOMScanner {
 class UserHighlighter {
   constructor() {
     this.highlightedPosts = new WeakMap();
+    this.postByUsername = new Map();   // username → postElement for batch dismiss
     this.selectedUsernames = new Set();       // tracks checked usernames for batch operations
     this.onSelectionChanged = null;           // callback when selection changes
   }
@@ -364,8 +365,13 @@ class UserHighlighter {
       });
       usernameElement.parentElement?.insertBefore(checkbox, indicatorBadge);
 
+      // Create and insert dismiss (false-positive) button
+      const dismissButton = this.createDismissButton(username, postElement);
+      trueBlockButton.parentElement?.insertBefore(dismissButton, trueBlockButton.nextSibling);
+
       // Mark this post as highlighted
       this.highlightedPosts.set(postElement, { username, matchedKeywords });
+      this.postByUsername.set(username, postElement);
 
       // Add a data attribute for CSS styling
       postElement.setAttribute('data-keyword-matched', 'true');
@@ -593,6 +599,185 @@ class UserHighlighter {
   }
 
   /**
+   * Add a small manual-classify button to every non-blocked post.
+   * Shows a dropdown with "Mark as spam" / "Mark as false positive".
+   */
+  addManualClassifyButton(postElement, username) {
+    if (postElement.hasAttribute('data-bt-manual-btn')) return;
+
+    const usernameElement = this.findUsernameElement(postElement, username);
+    if (!usernameElement) return;
+
+    const btn = document.createElement('button');
+    btn.className = 'bt-manual-classify-btn';
+    btn.dataset.username = username;
+    btn.textContent = '🚩';
+    btn.type = 'button';
+    btn.title = '手动标记';
+    btn.style.cssText = `
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 6px;
+      padding: 1px 5px;
+      background: transparent;
+      color: #6b7280;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      vertical-align: middle;
+      opacity: 0.4;
+      transition: opacity 0.15s;
+    `;
+
+    btn.addEventListener('mouseenter', () => { btn.style.opacity = '1'; });
+    btn.addEventListener('mouseleave', () => { btn.style.opacity = '0.4'; });
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this._showManualMenu(btn, postElement, username);
+    });
+
+    usernameElement.parentElement?.appendChild(btn);
+    postElement.setAttribute('data-bt-manual-btn', 'true');
+  }
+
+  _showManualMenu(anchorBtn, postElement, username) {
+    document.querySelectorAll('.bt-manual-menu').forEach(m => m.remove());
+
+    const isFlagged = postElement.hasAttribute('data-keyword-matched');
+
+    const menu = document.createElement('div');
+    menu.className = 'bt-manual-menu';
+    menu.style.cssText = `
+      position: fixed;
+      background: #1f2937;
+      border: 1px solid #374151;
+      border-radius: 8px;
+      padding: 4px 0;
+      z-index: 100001;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+      min-width: 150px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 13px;
+    `;
+
+    const makeItem = (text, color, onClick) => {
+      const item = document.createElement('div');
+      item.textContent = text;
+      item.style.cssText = `padding: 8px 14px; color: ${color}; cursor: pointer;`;
+      item.addEventListener('mouseenter', () => { item.style.background = 'rgba(255,255,255,0.06)'; });
+      item.addEventListener('mouseleave', () => { item.style.background = ''; });
+      item.addEventListener('click', (e) => { e.stopPropagation(); menu.remove(); onClick(); });
+      return item;
+    };
+
+    menu.appendChild(makeItem('🚩 标记为垃圾', '#f87171', () => {
+      if (!isFlagged) this.highlight(postElement, username, ['✋ 手动标记']);
+      chrome.storage.local.get(['aiSpamUsers', 'falsePositiveUsers'], (data) => {
+        const spam = data.aiSpamUsers || {};
+        const fp = data.falsePositiveUsers || {};
+        spam[username] = Date.now();
+        delete fp[username];
+        chrome.storage.local.set({ aiSpamUsers: spam, falsePositiveUsers: fp });
+      });
+    }));
+
+    menu.appendChild(makeItem('✕ 标记为误报', '#9ca3af', () => {
+      if (isFlagged) {
+        this.dismissHighlight(postElement, username);
+      } else {
+        chrome.storage.local.get(['falsePositiveUsers', 'aiSpamUsers'], (data) => {
+          const fp = data.falsePositiveUsers || {};
+          const spam = data.aiSpamUsers || {};
+          fp[username] = Date.now();
+          delete spam[username];
+          chrome.storage.local.set({ falsePositiveUsers: fp, aiSpamUsers: spam });
+        });
+      }
+    }));
+
+    document.body.appendChild(menu);
+
+    const rect = anchorBtn.getBoundingClientRect();
+    menu.style.top = `${rect.bottom + 4}px`;
+    menu.style.left = `${rect.left}px`;
+
+    const close = (e) => {
+      if (!menu.contains(e.target) && e.target !== anchorBtn) {
+        menu.remove();
+        document.removeEventListener('click', close, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', close, true), 0);
+  }
+
+  /**
+   * Create a dismiss (false-positive) button for a highlighted post
+   * @private
+   */
+  createDismissButton(username, postElement) {
+    const button = document.createElement('button');
+    button.className = 'bt-dismiss-button';
+    button.textContent = '✕ 误报';
+    button.dataset.username = username;
+    button.type = 'button';
+    button.style.cssText = `
+      display: inline-block;
+      margin-left: 4px;
+      padding: 4px 10px;
+      background-color: #374151;
+      color: #d1d5db;
+      border: 1px solid #4b5563;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background-color 0.2s;
+    `;
+    button.addEventListener('mouseover', () => {
+      button.style.backgroundColor = '#4b5563';
+    });
+    button.addEventListener('mouseout', () => {
+      button.style.backgroundColor = '#374151';
+    });
+    button.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.dismissHighlight(postElement, username);
+    });
+    return button;
+  }
+
+  /**
+   * Remove AI highlight from a post (user marked as false positive)
+   */
+  dismissHighlight(postElement, username) {
+    postElement.removeAttribute('data-keyword-matched');
+    postElement.classList.remove('bt-keyword-matched');
+    this.highlightedPosts.delete(postElement);
+    this.postByUsername.delete(username);
+    this.selectedUsernames.delete(username);
+
+    for (const cls of ['.bt-indicator-badge', '.bt-block-button', '.bt-true-block-button',
+                       '.bt-select-checkbox', '.bt-manual-mark-btn', '.bt-dismiss-button']) {
+      postElement.querySelectorAll(cls).forEach(el => el.remove());
+    }
+    if (this.onSelectionChanged) this.onSelectionChanged();
+
+    // Remove from AI spam list and add to false-positive list (both persisted)
+    chrome.storage.local.get(['aiSpamUsers', 'falsePositiveUsers'], (data) => {
+      const spamUsers = data.aiSpamUsers || {};
+      delete spamUsers[username];
+      const fpUsers = data.falsePositiveUsers || {};
+      fpUsers[username] = Date.now();
+      chrome.storage.local.set({ aiSpamUsers: spamUsers, falsePositiveUsers: fpUsers });
+    });
+  }
+
+  /**
    * Select all matched posts for batch operations
    */
   selectAll() {
@@ -729,6 +914,25 @@ class BatchBlockToolbar {
     });
     this.toolbar.appendChild(trueBlockAllBtn);
 
+    // Batch dismiss (false positive) button
+    const dismissAllBtn = document.createElement('button');
+    dismissAllBtn.className = 'bt-batch-dismiss-btn';
+    dismissAllBtn.textContent = '✕ 标记为误报';
+    dismissAllBtn.style.cssText = `
+      background: #374151;
+      color: #d1d5db;
+      border: 1px solid #4b5563;
+      border-radius: 6px;
+      padding: 6px 14px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    `;
+    dismissAllBtn.addEventListener('click', () => {
+      this.dismissAll();
+    });
+    this.toolbar.appendChild(dismissAllBtn);
+
     document.body.appendChild(this.toolbar);
   }
 
@@ -760,20 +964,21 @@ class BatchBlockToolbar {
     const count = selected.length;
     console.log(`[block-twitter] Batch blocking ${count} users:`, selected);
 
-    try {
-      // Block all in parallel
-      await Promise.all(selected.map(username => this.blockingManager.blockUser(username)));
+    const results = await Promise.allSettled(
+      selected.map(username => this.blockingManager.blockUser(username))
+    );
 
-      // Show success message
+    const failed = results.filter(r => r.status === 'rejected').length;
+    if (failed === 0) {
       this.showToast(`已隐藏 ${count} 个用户`);
-
-      // Clear selection
-      this.highlighter.clearAll();
-      this.update();
-    } catch (error) {
-      console.error('[block-twitter] Error batch blocking:', error);
-      this.showToast('隐藏失败，请重试', 'error');
+    } else if (failed < count) {
+      this.showToast(`已隐藏 ${count - failed} / ${count} 个用户`);
+    } else {
+      this.showToast('隐藏失败，请重新加载页面后重试', 'error');
     }
+
+    this.highlighter.clearAll();
+    this.update();
   }
 
   /**
@@ -851,6 +1056,28 @@ class BatchBlockToolbar {
       btn.disabled = false;
       btn.textContent = '🚫 屏蔽所有(X)';
     }
+  }
+
+  /**
+   * Dismiss all selected posts as false positives
+   */
+  dismissAll() {
+    const selected = this.highlighter.getSelected();
+    if (selected.length === 0) return;
+
+    for (const username of [...selected]) {
+      const postEl = this.highlighter.postByUsername.get(username);
+      if (postEl && document.contains(postEl)) {
+        this.highlighter.dismissHighlight(postEl, username);
+      } else {
+        // Post element detached — clear state directly
+        this.highlighter.postByUsername.delete(username);
+        this.highlighter.selectedUsernames.delete(username);
+      }
+    }
+
+    this.update();
+    this.showToast(`已将 ${selected.length} 个用户标记为误报`);
   }
 
   /**
@@ -1015,23 +1242,23 @@ class BlockingManager {
    * @param {string} username - The username to block (e.g., "@username")
    */
   async blockUser(username) {
+    if (!username) return;
+
+    const normalizedUsername = username.startsWith('@') ? username : `@${username}`;
+
+    // Update in-memory state and hide posts immediately — do this before any async work
+    // so the UI responds even if storage save fails.
+    this.blockedUsers[normalizedUsername] = Date.now();
+    this.hidePostsFromUser(normalizedUsername);
+
     try {
-      if (!username) return;
-
-      // Normalize username (remove @ if present)
-      const normalizedUsername = username.startsWith('@') ? username : `@${username}`;
-
-      // Add to blocked users
-      this.blockedUsers[normalizedUsername] = Date.now();
-
-      // Save to storage
       await this.saveBlockedUsers();
-
-      // Hide all posts from this user
-      this.hidePostsFromUser(normalizedUsername);
-
-      console.log(`[block-twitter] Blocked user: ${normalizedUsername}`);
     } catch (error) {
+      if (error?.message?.includes('Extension context invalidated')) {
+        // Extension was reloaded in another tab — in-memory hide already applied, nothing more we can do.
+        console.warn('[block-twitter] Extension context invalidated; block not persisted for:', normalizedUsername);
+        return;
+      }
       console.error('[block-twitter] Error blocking user:', error);
       throw error;
     }
@@ -1414,12 +1641,403 @@ class TrueBlocker {
 }
 
 // ============================================================================
-// 6. Main Content Script Initialization
+// 6. AIDetector - Classify posts as spam using Chrome AI or external API
+// ============================================================================
+
+class AIDetector {
+  constructor() {
+    this.available = false;
+    this.backend = null; // 'chrome-ai' | 'api'
+  }
+
+  async initialize() {
+    if (window.ai?.languageModel) {
+      try {
+        const caps = await window.ai.languageModel.capabilities();
+        if (caps.available !== 'no') {
+          this.available = true;
+          this.backend = 'chrome-ai';
+          console.log('[block-twitter] AI backend: chrome-ai');
+          return;
+        }
+      } catch (_) {}
+    }
+    const cfg = await new Promise(resolve =>
+      chrome.storage.local.get(['aiBaseUrl', 'aiApiKey'], resolve)
+    );
+    if (cfg.aiBaseUrl && cfg.aiApiKey) {
+      this.available = true;
+      this.backend = 'api';
+      console.log('[block-twitter] AI backend: api', cfg.aiBaseUrl);
+    }
+  }
+
+  async classifyBatch(posts, onProgress) {
+    if (!this.available) return new Map();
+    const results = new Map();
+
+    if (this.backend === 'chrome-ai') {
+      let session = await this._createChromeAISession();
+      for (let i = 0; i < posts.length; i++) {
+        if (i > 0 && i % 20 === 0) {
+          session.destroy();
+          session = await this._createChromeAISession();
+        }
+        const label = await this._classifyOneChromeAI(session, posts[i].username, posts[i].text);
+        results.set(posts[i].post, label);
+        onProgress?.(i + 1, posts.length);
+      }
+      session.destroy();
+    } else {
+      for (let i = 0; i < posts.length; i += 10) {
+        const batch = posts.slice(i, i + 10);
+        const labels = await this._classifyBatchAPI(batch);
+        batch.forEach(({ post }, j) => results.set(post, labels[j] ?? 'ok'));
+        onProgress?.(Math.min(i + 10, posts.length), posts.length);
+      }
+    }
+    return results;
+  }
+
+  async _classifyOneChromeAI(session, username, text) {
+    const result = await session.prompt(`用户名: ${username}\n内容: ${text.slice(0, 300)}`);
+    return result.trim().toLowerCase().startsWith('spam') ? 'spam' : 'ok';
+  }
+
+  async _createChromeAISession() {
+    return window.ai.languageModel.create({ systemPrompt: await this._getSystemPrompt() });
+  }
+
+  async _classifyBatchAPI(batch) {
+    const cfg = await new Promise(resolve =>
+      chrome.storage.local.get(['aiBaseUrl', 'aiApiKey', 'aiModel'], resolve)
+    );
+    const payload = {
+      posts: batch.map(({ username, displayName, text }) => ({ username, displayName, text })),
+      baseUrl: cfg.aiBaseUrl,
+      apiKey: cfg.aiApiKey,
+      model: cfg.aiModel,
+      systemPrompt: await this._getSystemPrompt(),
+    };
+
+    // Retry once if the service worker channel closes (MV3 worker may sleep mid-request)
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await chrome.runtime.sendMessage({ type: 'aiClassify', payload });
+        if (response?.success) return response.labels;
+        if (response?.error) console.warn('[block-twitter] AI classify error:', response.error);
+        break;
+      } catch (err) {
+        if (attempt === 0 && err?.message?.includes('message channel closed')) {
+          await new Promise(r => setTimeout(r, 500));
+          continue;
+        }
+        console.error('[block-twitter] sendMessage failed:', err);
+        break;
+      }
+    }
+    return batch.map(() => 'ok');
+  }
+
+  async _getSystemPrompt() {
+    const data = await new Promise(resolve =>
+      chrome.storage.local.get(['aiCustomPrompt', 'keywords'], resolve)
+    );
+    const base = data.aiCustomPrompt || AIDetector.DEFAULT_SYSTEM_PROMPT;
+    const keywords = Array.isArray(data.keywords) ? data.keywords : [];
+    if (keywords.length === 0) return base;
+
+    // Append up to 80 keywords as concrete examples (avoid token bloat)
+    const sample = keywords.slice(0, 80).join('、');
+    return base + `\n\n【已知垃圾关键词示例（参考相似模式，不必完全匹配）】\n${sample}`;
+  }
+}
+
+AIDetector.DEFAULT_SYSTEM_PROMPT =
+`你是Twitter/X平台的垃圾账号分类器。每条输入包含"账号"（显示名+@handle）和"内容"两部分。
+
+【判断为 spam 的情形】
+- 显示名或内容含色情/成人服务：招嫖、约炮、破处、免费福利、约会、找主人、找搭子（带性暗示语境）等
+- 内容为纯 emoji 组合，无实质文字，疑似引流暗号
+- 内容中含不可见字符（藏文、零宽字符）插入 emoji 之间
+- 推广刷粉、涨粉、诈骗、虚假投资
+- 机器人式重复内容或明显无意义引流评论
+
+【判断为 ok 的情形】
+- 正常观点、新闻、日常生活，即使措辞粗俗
+- 批评他人或有争议的内容
+- 含 emoji 但有实质文字内容的帖子
+
+只回复 spam 或 ok，绝对不要解释。`;
+
+// ============================================================================
+// 7. AIScanButton - Floating button to trigger AI scan of current page
+// ============================================================================
+
+class AIScanButton {
+  constructor(aiDetector, highlighter, extractUsernameFn) {
+    this.aiDetector = aiDetector;
+    this.highlighter = highlighter;
+    this.extractUsername = extractUsernameFn;
+    this.btn = null;
+    this.scanning = false;
+  }
+
+  render() {
+    this.btn = document.createElement('button');
+    this.btn.id = 'bt-ai-scan-btn';
+    const isAvailable = this.aiDetector.available;
+    this.btn.textContent = '🤖 AI扫描';
+    this.btn.title = isAvailable
+      ? '扫描当前页面的垃圾账号'
+      : '请先在设置页配置 AI（Base URL + API Key）';
+    this.btn.style.cssText = `
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: ${isAvailable ? '#1d4ed8' : '#6b7280'};
+      color: white;
+      border: none;
+      border-radius: 20px;
+      padding: 10px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: ${isAvailable ? 'pointer' : 'not-allowed'};
+      z-index: 99998;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      transition: background 0.2s;
+      white-space: nowrap;
+    `;
+
+    if (isAvailable) {
+      this.btn.addEventListener('click', () => this._scan());
+    }
+    document.body.appendChild(this.btn);
+  }
+
+  async _scan() {
+    if (this.scanning) return;
+
+    // Immediate feedback — disable button before any async work
+    this.scanning = true;
+    if (this.btn) {
+      this.btn.disabled = true;
+      this.btn.textContent = '⏳ 准备中...';
+      this.btn.style.opacity = '0.8';
+    }
+
+    // Re-check backend on every scan — user may have configured API key after page load
+    await this.aiDetector.initialize();
+    if (!this.aiDetector.available) {
+      this.btn.title = '请先在设置页配置 AI（Base URL + API Key）';
+      this._resetLabel();
+      return;
+    }
+    this.btn.style.cursor = 'pointer';
+    this.btn.style.background = '#1d4ed8';
+
+    try {
+      const startTime = Date.now();
+
+      const { falsePositiveUsers = {} } = await new Promise(resolve =>
+        chrome.storage.local.get(['falsePositiveUsers'], resolve)
+      );
+
+      const allPosts = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
+      const posts = allPosts
+        .filter(post => !post.hasAttribute('data-keyword-matched') && !post.hasAttribute('data-bt-blocked'))
+        .filter(post => !this._isVerified(post))
+        .map(post => ({
+          post,
+          username: this.extractUsername(post),
+          displayName: this._extractDisplayName(post),
+          text: KeywordMatcher.extractPostText(post),
+        }))
+        .filter(({ username, text }) => username && text && !falsePositiveUsers[username]);
+
+      if (posts.length === 0) {
+        this._setLabel('✓ 无新帖子');
+        setTimeout(() => this._resetLabel(), 2000);
+        return;
+      }
+
+      // Show post count immediately so user knows scan started
+      if (this.btn) this.btn.textContent = `⏳ 扫描 0/${posts.length}...`;
+
+      const results = await this.aiDetector.classifyBatch(posts, (done, total) => {
+        if (this.btn) this.btn.textContent = `⏳ 扫描 ${done}/${total}...`;
+      });
+
+      let spamCount = 0;
+      const newSpamEntries = {};
+      for (const [postEl, label] of results) {
+        if (label === 'spam') {
+          const entry = posts.find(p => p.post === postEl);
+          if (!entry?.username) continue;
+
+          // Twitter's React may have re-rendered the element during the API call.
+          // Re-find the current live element by username before inserting badges.
+          const liveEl = document.contains(postEl)
+            ? postEl
+            : this._refindPost(entry.username);
+          if (!liveEl) continue;
+
+          this.highlighter.highlight(liveEl, entry.username, ['🤖 AI识别']);
+          this._addFeedbackButtons(liveEl, entry.username);
+          newSpamEntries[entry.username] = Date.now();
+          spamCount++;
+        }
+      }
+
+      // Persist spam usernames so they survive page refresh
+      if (Object.keys(newSpamEntries).length > 0) {
+        chrome.storage.local.get(['aiSpamUsers'], (data) => {
+          const merged = { ...(data.aiSpamUsers || {}), ...newSpamEntries };
+          chrome.storage.local.set({ aiSpamUsers: merged });
+        });
+      }
+
+      // After scan: add "手动标记" button to undetected posts so user can report misses
+      for (const { post, username } of posts) {
+        const livePost = document.contains(post) ? post : this._refindPost(username);
+        if (livePost && !livePost.hasAttribute('data-keyword-matched') && !this._isVerified(livePost)) {
+          this._addMarkButton(livePost, username);
+        }
+      }
+
+      const elapsed = Math.round((Date.now() - startTime) / 1000);
+      this._setLabel(`✓ 发现 ${spamCount} 个 (${elapsed}s)`);
+      setTimeout(() => this._resetLabel(), 3000);
+    } catch (err) {
+      console.error('[block-twitter] AI scan error:', err);
+      this._setLabel('✗ 扫描失败');
+      setTimeout(() => this._resetLabel(), 2000);
+    }
+  }
+
+  // Re-find the live DOM element for a username when the original reference is detached
+  _refindPost(username) {
+    const handle = username.replace('@', '').toLowerCase();
+    for (const post of document.querySelectorAll('article[data-testid="tweet"]')) {
+      for (const link of post.querySelectorAll('a[href^="/"]')) {
+        if (link.getAttribute('href')?.toLowerCase() === `/${handle}`) return post;
+      }
+    }
+    return null;
+  }
+
+  // Return true if the post author has a blue verified badge
+  _isVerified(postElement) {
+    const userNameEl = postElement.querySelector('[data-testid="User-Name"]');
+    if (!userNameEl) return false;
+    return !!(
+      userNameEl.querySelector('[data-testid="verifiedBadge"]') ||
+      userNameEl.querySelector('svg[aria-label="Verified account"]') ||
+      userNameEl.querySelector('[aria-label="Verified account"]')
+    );
+  }
+
+  // Extract display name (the visible name above @handle, including emoji)
+  _extractDisplayName(postElement) {
+    const userNameEl = postElement.querySelector('[data-testid="User-Name"]');
+    if (!userNameEl) return '';
+    const fullText = KeywordMatcher.extractPostText(userNameEl);
+    const atIdx = fullText.indexOf('@');
+    return atIdx > 0 ? fullText.slice(0, atIdx).trim() : fullText.trim();
+  }
+
+  // Add "误报" dismiss + "漏报" feedback on AI-flagged posts
+  _addFeedbackButtons(postEl, username) {
+    const existingBadge = postEl.querySelector('.bt-indicator-badge');
+    if (!existingBadge) return;
+
+    const dismissBtn = document.createElement('button');
+    dismissBtn.textContent = '✕ 误报';
+    dismissBtn.title = '这不是垃圾，取消标记';
+    dismissBtn.style.cssText = `
+      display: inline-block;
+      margin-left: 4px;
+      padding: 4px 8px;
+      background: #374151;
+      color: #d1d5db;
+      border: none;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    `;
+    dismissBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.highlighter.dismissHighlight(postEl, username);
+    });
+    existingBadge.parentElement?.insertBefore(dismissBtn, existingBadge.nextSibling);
+  }
+
+  // Add a small "🚮" button to posts the AI didn't flag — lets user manually report misses
+  _addMarkButton(postEl, username) {
+    if (postEl.querySelector('.bt-manual-mark-btn')) return;
+    const userNameEl = postEl.querySelector('[data-testid="User-Name"]');
+    if (!userNameEl) return;
+
+    const btn = document.createElement('button');
+    btn.className = 'bt-manual-mark-btn';
+    btn.textContent = '🚮';
+    btn.title = '标记为垃圾账号';
+    btn.style.cssText = `
+      display: inline-block;
+      margin-left: 6px;
+      padding: 2px 6px;
+      background: transparent;
+      color: #6b7280;
+      border: 1px solid #374151;
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      opacity: 0.5;
+      transition: opacity 0.2s;
+    `;
+    btn.addEventListener('mouseenter', () => { btn.style.opacity = '1'; });
+    btn.addEventListener('mouseleave', () => { btn.style.opacity = '0.5'; });
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      btn.remove();
+      this.highlighter.highlight(postEl, username, ['🤖 手动标记']);
+      this._addFeedbackButtons(postEl, username);
+      // Persist so re-appears after page refresh
+      chrome.storage.local.get(['aiSpamUsers'], (data) => {
+        const users = data.aiSpamUsers || {};
+        users[username] = Date.now();
+        chrome.storage.local.set({ aiSpamUsers: users });
+      });
+    });
+    userNameEl.parentElement?.appendChild(btn);
+  }
+
+  _setLabel(text) {
+    if (this.btn) this.btn.textContent = text;
+  }
+
+  _resetLabel() {
+    if (this.btn) {
+      this.btn.textContent = '🤖 AI扫描';
+      this.btn.style.background = this.aiDetector.available ? '#1d4ed8' : '#6b7280';
+      this.btn.style.opacity = '1';
+      this.btn.disabled = false;
+    }
+    this.scanning = false;
+  }
+}
+
+// ============================================================================
+// 8. Main Content Script Initialization
 // ============================================================================
 
 class ContentScriptManager {
   constructor() {
     this.keywords = [];
+    this.aiSpamUsers = {};
+    this.falsePositiveUsers = {};
     this.scanner = null;
     this.highlighter = null;
     this.blockingManager = null;
@@ -1440,14 +2058,19 @@ class ContentScriptManager {
       // Make blocking manager globally accessible for the block button
       window.blockingManager = this.blockingManager;
 
-      // Load keywords from storage
+      // Load keywords and AI spam users from storage
       await this.loadKeywords();
+      await this.loadAISpamUsers();
+      await this.loadFalsePositiveUsers();
+      await this.loadShowManualClassifyBtn();
 
-      // Listen for keyword updates
+      // Listen for storage updates
       chrome.storage.onChanged.addListener((changes, areaName) => {
-        if (areaName === 'local' && changes.keywords) {
-          this.onKeywordsChanged(changes.keywords);
-        }
+        if (areaName !== 'local') return;
+        if (changes.keywords) this.onKeywordsChanged(changes.keywords);
+        if (changes.aiSpamUsers) this.aiSpamUsers = changes.aiSpamUsers.newValue || {};
+        if (changes.falsePositiveUsers) this.falsePositiveUsers = changes.falsePositiveUsers.newValue || {};
+        if (changes.showManualClassifyBtn) this._applyManualBtnVisibility(changes.showManualClassifyBtn.newValue ?? false);
       });
 
       // Initialize DOM scanner
@@ -1460,6 +2083,17 @@ class ContentScriptManager {
       this.toolbar = new BatchBlockToolbar(this.highlighter, this.blockingManager);
       this.highlighter.onSelectionChanged = () => this.toolbar.update();
       this.toolbar.render();
+
+      // Initialize AI scan button
+      this.aiDetector = new AIDetector();
+      await this.aiDetector.initialize();
+      this.aiScanButton = new AIScanButton(
+        this.aiDetector,
+        this.highlighter,
+        (post) => this.extractUsername(post)
+      );
+      this.aiScanButton.render();
+      this._renderManualBtnToggle();
 
       // Setup message listener for popup
       chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -1509,6 +2143,104 @@ class ContentScriptManager {
     });
   }
 
+  loadAISpamUsers() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['aiSpamUsers'], (result) => {
+        this.aiSpamUsers = result.aiSpamUsers || {};
+        resolve();
+      });
+    });
+  }
+
+  loadFalsePositiveUsers() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['falsePositiveUsers'], (result) => {
+        this.falsePositiveUsers = result.falsePositiveUsers || {};
+        resolve();
+      });
+    });
+  }
+
+  loadShowManualClassifyBtn() {
+    return new Promise((resolve) => {
+      chrome.storage.local.get(['showManualClassifyBtn'], (result) => {
+        this._applyManualBtnVisibility(result.showManualClassifyBtn ?? false);
+        resolve();
+      });
+    });
+  }
+
+  _renderManualBtnToggle() {
+    const btn = document.createElement('button');
+    btn.id = 'bt-manual-toggle-btn';
+    btn.title = '开关：在每条帖子旁显示手动标记按钮（🚩）';
+    btn.style.cssText = `
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      border: none;
+      border-radius: 20px;
+      padding: 10px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      z-index: 99997;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      transition: background 0.2s, opacity 0.2s;
+      white-space: nowrap;
+    `;
+
+    const update = (show) => {
+      btn.textContent = show ? '🚩 ON' : '🚩';
+      btn.style.background = show ? '#92400e' : '#374151';
+      btn.style.color = show ? '#fde68a' : '#9ca3af';
+      btn.style.opacity = show ? '1' : '0.7';
+    };
+
+    const positionLeft = () => {
+      const scanBtn = document.getElementById('bt-ai-scan-btn');
+      if (scanBtn) {
+        btn.style.right = `${scanBtn.offsetWidth + 36}px`;
+      }
+    };
+
+    chrome.storage.local.get(['showManualClassifyBtn'], (data) => {
+      update(data.showManualClassifyBtn ?? false);
+      positionLeft();
+    });
+
+    btn.addEventListener('click', () => {
+      chrome.storage.local.get(['showManualClassifyBtn'], (data) => {
+        const next = !(data.showManualClassifyBtn ?? false);
+        chrome.storage.local.set({ showManualClassifyBtn: next });
+        update(next);
+      });
+    });
+
+    document.body.appendChild(btn);
+    setTimeout(positionLeft, 100);
+  }
+
+  _applyManualBtnVisibility(show) {
+    let style = document.getElementById('bt-manual-btn-style');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = 'bt-manual-btn-style';
+      document.head.appendChild(style);
+    }
+    style.textContent = show ? '' : '.bt-manual-classify-btn { display: none !important; }';
+
+    // Sync floating toggle button appearance
+    const toggleBtn = document.getElementById('bt-manual-toggle-btn');
+    if (toggleBtn) {
+      toggleBtn.textContent = show ? '🚩 ON' : '🚩';
+      toggleBtn.style.background = show ? '#92400e' : '#374151';
+      toggleBtn.style.color = show ? '#fde68a' : '#9ca3af';
+      toggleBtn.style.opacity = show ? '1' : '0.7';
+    }
+  }
+
   /**
    * Handle keyword storage changes
    * @private
@@ -1536,33 +2268,31 @@ class ContentScriptManager {
 
       // If user is already blocked, hide the post and return
       if (username && this.blockingManager && this.blockingManager.blockedUsers[username]) {
-        console.log(`[block-twitter] Post from ${username} is already blocked, hiding`);
         this.blockingManager.hidePostsFromUser(username);
         return;
       }
 
+      // Add manual classify button to every visible post (skips blocked)
+      if (username) this.highlighter.addManualClassifyButton(postElement, username);
+
+      // If user was previously flagged by AI (and not since dismissed), re-apply highlight
+      if (username && this.aiSpamUsers[username] && !this.falsePositiveUsers[username]) {
+        this.highlighter.highlight(postElement, username, ['🤖 AI识别']);
+        return;
+      }
+
       if (!this.keywords || this.keywords.length === 0) {
-        console.log('[block-twitter] Skipping post: no keywords loaded');
         return;
       }
 
       // Extract text content from post, including emoji rendered as <img alt="...">
       const postText = KeywordMatcher.extractPostText(postElement);
-      // Debug: print extracted text as JSON so newlines/whitespace are visible
-      console.log('[block-twitter] extracted text (JSON):', JSON.stringify(postText.slice(0, 200)));
 
       // Check if post matches any keywords
       const matchedKeywords = KeywordMatcher.match(postText, this.keywords);
 
-      if (matchedKeywords.length > 0) {
-        console.log('[block-twitter] Found matching keywords:', matchedKeywords);
-        if (username) {
-          console.log(`[block-twitter] Highlighting post from ${username} for keywords: ${matchedKeywords.join(', ')}`);
-          // Highlight the post
-          this.highlighter.highlight(postElement, username, matchedKeywords);
-        } else {
-          console.log('[block-twitter] Could not extract username from post');
-        }
+      if (matchedKeywords.length > 0 && username) {
+        this.highlighter.highlight(postElement, username, matchedKeywords);
       }
     } catch (error) {
       console.error('[block-twitter] Error processing post:', error);
