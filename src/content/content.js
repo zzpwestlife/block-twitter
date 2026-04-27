@@ -1737,9 +1737,9 @@ class AIDetector {
     const groups = { url: [], sex: [], master: [], offline: [], emoji_only: [], other: [] };
     const re = {
       url: /https?:\/\//i,
-      sex: /(招嫖|约炮|固炮|破处|做爱|骚货|胸大|尤物|免费福利|招p|操|口交|无码视频|啪啪|上床)/i,
+      sex: /(招嫖|约炮|固炮|破处|做爱|骚货|胸大|尤物|免费福利|招p|操|口交|无码视频|啪啪|上床|SM|BDSM|床搭子|可飞|可空降|可约|飞🍑|🍑)/i,
       master: /(主人|小狗|调教|等主|找主)/i,
-      offline: /(同城|线下|附近|万达|蹲个|男大|体育生|哥哥线下|弟弟线下|\bdd\b)/i,
+      offline: /(同城|线下|附近|万达|蹲个|男大|体育生|哥哥线下|弟弟线下|(?:^|\s)dd(?=\s|$|[^A-Za-z0-9_]))/i,
     };
 
     for (const s of cleaned) {
