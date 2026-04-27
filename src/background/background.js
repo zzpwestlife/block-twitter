@@ -497,7 +497,15 @@ async function handleAIClassify({ posts, baseUrl, apiKey, model, systemPrompt })
       return `[${i + 1}] 账号: ${name}\n    内容: ${p.text.slice(0, 300)}`;
     })
     .join('\n');
-  const userMsg = `对以下帖子分类，每行格式 "序号: spam或ok":\n\n${postsText}`;
+  const N = posts.length;
+  const userMsg =
+`对以下帖子分类。只输出 ${N} 行，每行必须严格使用半角冒号 ':'，格式必须为: "序号: spam" 或 "序号: ok"。
+不要输出任何解释、标题、空行或多余字符。
+示例:
+1: spam
+2: ok
+
+${postsText}`;
 
   let text = '';
   try {
