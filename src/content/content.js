@@ -2189,6 +2189,47 @@ class ContentScriptManager {
     this.scanner = null;
     this.highlighter = null;
     this.blockingManager = null;
+    this._rootTweetEl = null; // cache for status-page root tweet
+  }
+
+  _isStatusPage() {
+    try {
+      return /\/status\//.test(location.pathname);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  _getRootTweetEl() {
+    if (this._rootTweetEl && document.contains(this._rootTweetEl)) return this._rootTweetEl;
+
+    // Strategy A: tweetDetail container (preferred)
+    const detail = document.querySelector('[data-testid="tweetDetail"]');
+    if (detail) {
+      const root =
+        detail.closest('article[data-testid="tweet"]') || detail.closest('article') || null;
+      if (root) {
+        this._rootTweetEl = root;
+        return root;
+      }
+    }
+
+    // Strategy B: best-effort fallback — first tweet on the page (status page only)
+    const first =
+      document.querySelector('article[data-testid="tweet"]') ||
+      document.querySelector('[data-testid="tweet"]') ||
+      null;
+    if (first) {
+      this._rootTweetEl = first;
+      return first;
+    }
+    return null;
+  }
+
+  _isRootTweet(postElement) {
+    if (!postElement) return false;
+    const root = this._getRootTweetEl();
+    return !!(root && postElement === root);
   }
 
   /**
