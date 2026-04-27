@@ -676,17 +676,58 @@ class UserHighlighter {
       font-size: 13px;
     `;
 
+    let close = null;
+    const removeMenu = () => {
+      // Always clean up the global click listener to avoid leaking handlers.
+      if (close) {
+        document.removeEventListener('click', close, true);
+        close = null;
+      }
+      if (menu.isConnected) menu.remove();
+    };
+
     const makeItem = (text, color, onClick) => {
       const item = document.createElement('div');
       item.textContent = text;
       item.style.cssText = `padding: 8px 14px; color: ${color}; cursor: pointer;`;
       item.addEventListener('mouseenter', () => { item.style.background = 'rgba(255,255,255,0.06)'; });
       item.addEventListener('mouseleave', () => { item.style.background = ''; });
-      item.addEventListener('click', (e) => { e.stopPropagation(); menu.remove(); onClick(); });
+      item.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        removeMenu(); // close immediately to reduce clicks & avoid double-ops
+        try {
+          await onClick?.();
+        } catch (err) {
+          console.error('[block-twitter] Manual menu action error:', err);
+        }
+      });
       return item;
     };
 
-    menu.appendChild(makeItem('🚩 标记为垃圾', '#f87171', () => {
+    menu.appendChild(makeItem('🙈 隐藏（本地）', '#60a5fa', async () => {
+      try {
+        await window.blockingManager?.blockUser(username);
+      } catch (e) {
+        console.error('[block-twitter] Manual hide error:', e);
+      }
+    }));
+
+    menu.appendChild(makeItem('🚫 屏蔽（X）', '#fca5a5', async () => {
+      try {
+        const ok = await TrueBlocker.block(postElement, username);
+        if (ok) {
+          await window.blockingManager?.blockUser(username);
+        }
+      } catch (e) {
+        console.error('[block-twitter] Manual true block error:', e);
+      }
+    }));
+
+    const sep = document.createElement('div');
+    sep.style.cssText = 'border-top: 1px solid #374151; margin: 4px 0;';
+    menu.appendChild(sep);
+
+    menu.appendChild(makeItem('🚩 标记为垃圾', '#f87171', async () => {
       if (!isFlagged) this.highlight(postElement, username, ['✋ 手动标记']);
       chrome.storage.local.get(['aiSpamUsers', 'falsePositiveUsers'], (data) => {
         const spam = data.aiSpamUsers || {};
@@ -697,7 +738,7 @@ class UserHighlighter {
       });
     }));
 
-    menu.appendChild(makeItem('✕ 标记为误报', '#9ca3af', () => {
+    menu.appendChild(makeItem('✕ 标记为误报', '#9ca3af', async () => {
       if (isFlagged) {
         this.dismissHighlight(postElement, username);
       } else {
@@ -717,13 +758,18 @@ class UserHighlighter {
     menu.style.top = `${rect.bottom + 4}px`;
     menu.style.left = `${rect.left}px`;
 
-    const close = (e) => {
+    const closeHandler = (e) => {
       if (!menu.contains(e.target) && e.target !== anchorBtn) {
-        menu.remove();
-        document.removeEventListener('click', close, true);
+        removeMenu();
       }
     };
-    setTimeout(() => document.addEventListener('click', close, true), 0);
+    close = closeHandler;
+    setTimeout(() => {
+      // If the menu has already been removed synchronously (e.g. user clicked an item
+      // very quickly), do not attach the global handler.
+      if (!menu.isConnected || close !== closeHandler) return;
+      document.addEventListener('click', closeHandler, true);
+    }, 0);
   }
 
   /**
