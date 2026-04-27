@@ -2075,6 +2075,27 @@ class AIScanButton {
     }
   }
 
+  _autoSelectUsername(username) {
+    if (!username) return;
+    try {
+      // 1) update selection set
+      this.highlighter?.selectedUsernames?.add(username);
+
+      // 2) reflect on visible checkbox (if present)
+      const escaped =
+        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+          ? CSS.escape(username)
+          : username.replace(/["\\]/g, '\\$&');
+      const cb = document.querySelector(`.bt-select-checkbox[data-username="${escaped}"]`);
+      if (cb) cb.checked = true;
+
+      // 3) update toolbar counts
+      this.highlighter?.onSelectionChanged?.();
+    } catch (e) {
+      console.error('[block-twitter] Auto select username failed:', e);
+    }
+  }
+
   // Re-find the live DOM element for a username when the original reference is detached
   _refindPost(username) {
     const handle = username.replace('@', '').toLowerCase();
