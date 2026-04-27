@@ -1865,6 +1865,7 @@ class AIDetector {
     const sex = limit(groups.sex, 12);
     const master = limit(groups.master, 12);
     const offline = limit(groups.offline, 12);
+    const bait = limit(groups.bait, 12);
     const url = limit(groups.url, 8);
     const emoji = limit(groups.emoji_only, 8);
 
@@ -1872,6 +1873,7 @@ class AIDetector {
     if (sex.length) blocks.push(`- 色情/性服务：${join(sex)}`);
     if (master.length) blocks.push(`- 主人/调教：${join(master)}`);
     if (offline.length) blocks.push(`- 同城/线下求约（需结合引流/性暗示/求约语境）：${join(offline)}`);
+    if (bait.length) blocks.push(`- 擦边/引流模板：${join(bait)}`);
     if (url.length) blocks.push(`- 外链引流：${join(url)}`);
     if (emoji.length) blocks.push(`- 纯 emoji / 暗号：${join(emoji)}`);
 
