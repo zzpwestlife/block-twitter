@@ -553,10 +553,21 @@ ${postsText}`;
     return { success: false, error: err.message };
   }
 
+  const lines = String(text || '').split(/\r?\n/);
   const labels = posts.map((_, i) => {
-    const line = text.split('\n').find(l => l.trimStart().startsWith(`${i + 1}:`));
-    return line?.toLowerCase().includes('spam') ? 'spam' : 'ok';
+    const idx = i + 1;
+    const re = new RegExp(`^\\s*${idx}\\s*[:：/／\\.)\\-–—]\\s*(spam|ok)\\b`, 'i');
+    const line = lines.find(l => re.test(l));
+    const m = line?.match(re);
+    const v = (m?.[1] || 'ok').toLowerCase();
+    return v === 'spam' ? 'spam' : 'ok';
   });
+
+  const hasAnyNonEmptyLine = lines.some(l => l.trim().length > 0);
+  if (!labels.some(x => x === 'spam') && hasAnyNonEmptyLine) {
+    // Not necessarily an error, but helps diagnose “all ok” due to format mismatch.
+    console.warn('[block-twitter] AI parse produced no spam labels; check output format.');
+  }
   return { success: true, labels };
 }
 
