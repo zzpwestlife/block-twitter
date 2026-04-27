@@ -1854,9 +1854,28 @@ class AIDetector {
     const keywords = Array.isArray(data.keywords) ? data.keywords : [];
     if (keywords.length === 0) return base;
 
-    // Append up to 80 keywords as concrete examples (avoid token bloat)
-    const sample = keywords.slice(0, 80).join('、');
-    return base + `\n\n【已知垃圾关键词示例（参考相似模式，不必完全匹配）】\n${sample}`;
+    const groups = AIDetector._extractKeywordGroups(keywords);
+
+    const limit = (arr, n) => (Array.isArray(arr) ? arr.slice(0, n) : []);
+    const join = (arr) => arr.join('、');
+
+    // Per-group caps (tuned for token + signal quality)
+    const sex = limit(groups.sex, 12);
+    const master = limit(groups.master, 12);
+    const offline = limit(groups.offline, 12);
+    const url = limit(groups.url, 8);
+    const emoji = limit(groups.emoji_only, 8);
+
+    const blocks = [];
+    if (sex.length) blocks.push(`- 色情/性服务：${join(sex)}`);
+    if (master.length) blocks.push(`- 主人/调教：${join(master)}`);
+    if (offline.length) blocks.push(`- 同城/线下求约（需结合引流/性暗示/求约语境）：${join(offline)}`);
+    if (url.length) blocks.push(`- 外链引流：${join(url)}`);
+    if (emoji.length) blocks.push(`- 纯 emoji / 暗号：${join(emoji)}`);
+
+    if (!blocks.length) return base;
+
+    return base + `\n\n【高置信垃圾模式示例（仅作参考，需结合语境；证据不足请判 ok）】\n${blocks.join('\n')}`;
   }
 }
 
