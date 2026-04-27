@@ -1843,10 +1843,11 @@ AIDetector.DEFAULT_SYSTEM_PROMPT =
 // ============================================================================
 
 class AIScanButton {
-  constructor(aiDetector, highlighter, extractUsernameFn) {
+  constructor(aiDetector, highlighter, extractUsernameFn, container) {
     this.aiDetector = aiDetector;
     this.highlighter = highlighter;
     this.extractUsername = extractUsernameFn;
+    this.container = container || document.body;
     this.btn = null;
     this.scanning = false;
   }
@@ -1860,9 +1861,7 @@ class AIScanButton {
       ? '扫描当前页面的垃圾账号'
       : '请先在设置页配置 AI（Base URL + API Key）';
     this.btn.style.cssText = `
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
+      position: relative;
       background: ${isAvailable ? '#1d4ed8' : '#6b7280'};
       color: white;
       border: none;
@@ -1881,7 +1880,7 @@ class AIScanButton {
     if (isAvailable) {
       this.btn.addEventListener('click', () => this._scan());
     }
-    document.body.appendChild(this.btn);
+    this.container.appendChild(this.btn);
   }
 
   async _scan() {
@@ -2155,13 +2154,15 @@ class ContentScriptManager {
       // Initialize AI scan button
       this.aiDetector = new AIDetector();
       await this.aiDetector.initialize();
+      const floatingControlsContainer = this._getOrCreateFloatingControlsContainer();
       this.aiScanButton = new AIScanButton(
         this.aiDetector,
         this.highlighter,
-        (post) => this.extractUsername(post)
+        (post) => this.extractUsername(post),
+        floatingControlsContainer
       );
-      this.aiScanButton.render();
       this._renderManualBtnToggle();
+      this.aiScanButton.render();
 
       // Setup message listener for popup
       chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -2238,14 +2239,33 @@ class ContentScriptManager {
     });
   }
 
+  _getOrCreateFloatingControlsContainer() {
+    let el = document.getElementById('bt-floating-controls');
+    if (el) return el;
+
+    el = document.createElement('div');
+    el.id = 'bt-floating-controls';
+    el.style.cssText = `
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 12px;
+      z-index: 100000;
+      pointer-events: auto;
+    `;
+    document.body.appendChild(el);
+    return el;
+  }
+
   _renderManualBtnToggle() {
     const btn = document.createElement('button');
     btn.id = 'bt-manual-toggle-btn';
     btn.title = '开关：在每条帖子旁显示手动标记按钮（🚩）';
     btn.style.cssText = `
-      position: fixed;
-      bottom: 24px;
-      right: 24px;
+      position: relative;
       border: none;
       border-radius: 20px;
       padding: 10px 14px;
@@ -2266,16 +2286,8 @@ class ContentScriptManager {
       btn.style.opacity = show ? '1' : '0.7';
     };
 
-    const positionLeft = () => {
-      const scanBtn = document.getElementById('bt-ai-scan-btn');
-      if (scanBtn) {
-        btn.style.right = `${scanBtn.offsetWidth + 36}px`;
-      }
-    };
-
     chrome.storage.local.get(['showManualClassifyBtn'], (data) => {
       update(data.showManualClassifyBtn ?? false);
-      positionLeft();
     });
 
     btn.addEventListener('click', () => {
@@ -2286,8 +2298,8 @@ class ContentScriptManager {
       });
     });
 
-    document.body.appendChild(btn);
-    setTimeout(positionLeft, 100);
+    const container = this._getOrCreateFloatingControlsContainer();
+    container.appendChild(btn);
   }
 
   _applyManualBtnVisibility(show) {
