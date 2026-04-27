@@ -2043,6 +2043,7 @@ class AIScanButton {
           if (!liveEl) continue;
 
           this.highlighter.highlight(liveEl, entry.username, ['🤖 AI识别']);
+          this._autoSelectUsername(entry.username);
           this._addFeedbackButtons(liveEl, entry.username);
           newSpamEntries[entry.username] = Date.now();
           spamCount++;
