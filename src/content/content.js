@@ -1734,12 +1734,13 @@ class AIDetector {
       cleaned.push(s);
     }
 
-    const groups = { url: [], sex: [], master: [], offline: [], emoji_only: [], other: [] };
+    const groups = { url: [], sex: [], master: [], offline: [], bait: [], emoji_only: [], other: [] };
     const re = {
       url: /https?:\/\//i,
       sex: /(招嫖|约炮|固炮|破处|做爱|骚货|胸大|尤物|免费福利|招p|操|口交|无码视频|啪啪|上床|SM|BDSM|床搭子|可飞|可空降|可约|飞🍑|🍑)/i,
       master: /(主人|小狗|调教|等主|找主)/i,
       offline: /(同城|线下|附近|万达|蹲个|男大|体育生|哥哥线下|弟弟线下|(?:^|\s)dd(?=\s|$|[^A-Za-z0-9_]))/i,
+      bait: /(男大弟弟|男大|弟弟来|弟弟|舞蹈生|一字马|被指挥|真人可月|可月|可约|随心所欲|后劲很大|高级又治愈)/i,
     };
 
     for (const s of cleaned) {
@@ -1747,6 +1748,7 @@ class AIDetector {
       if (re.sex.test(s)) { groups.sex.push(s); continue; }
       if (re.master.test(s)) { groups.master.push(s); continue; }
       if (re.offline.test(s)) { groups.offline.push(s); continue; }
+      if (re.bait.test(s)) { groups.bait.push(s); continue; }
 
       // emoji-only heuristic: after removing word chars, nothing remains but symbols/spaces/newlines
       const letters = s.replace(/[\W_]+/gu, '');
