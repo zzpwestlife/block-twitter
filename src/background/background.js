@@ -494,7 +494,7 @@ async function handleAIClassify({ posts, baseUrl, apiKey, model, systemPrompt })
   const postsText = posts
     .map((p, i) => {
       const name = p.displayName ? `${p.displayName} (@${p.username.replace('@', '')})` : p.username;
-      return `[${i + 1}] 账号: ${name}\n    内容: ${p.text.slice(0, 200)}`;
+      return `[${i + 1}] 账号: ${name}\n    内容: ${p.text.slice(0, 300)}`;
     })
     .join('\n');
   const userMsg = `对以下帖子分类，每行格式 "序号: spam或ok":\n\n${postsText}`;
