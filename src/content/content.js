@@ -1993,7 +1993,18 @@ class AIScanButton {
       );
 
       const allPosts = Array.from(document.querySelectorAll('article[data-testid="tweet"]'));
-      const posts = allPosts
+      const isStatus = /\/status\//.test(location.pathname);
+      let rootTweet = null;
+      if (isStatus) {
+        const detail = document.querySelector('[data-testid="tweetDetail"]');
+        rootTweet =
+          detail?.closest('article[data-testid="tweet"]') ??
+          detail?.closest('article') ??
+          null;
+      }
+      const allPostsFiltered = rootTweet ? allPosts.filter(p => p !== rootTweet) : allPosts;
+
+      const posts = allPostsFiltered
         .filter(post => !post.hasAttribute('data-keyword-matched') && !post.hasAttribute('data-bt-blocked'))
         .filter(post => !this._isVerified(post))
         .map(post => ({
