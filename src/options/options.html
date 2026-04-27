@@ -161,6 +161,50 @@
                     <!-- Hidden users will be populated here -->
                 </div>
             </section>
+
+            <!-- AI Spam Users Section -->
+            <section class="section ai-spam-users-section">
+                <div class="section-header">
+                    <h2>AI 识别的垃圾用户</h2>
+                    <p class="counter">Count: <span id="aiSpamUserCount">0</span></p>
+                </div>
+
+                <div class="blocked-users-tools">
+                    <input
+                        type="text"
+                        id="aiSpamUserFilter"
+                        class="input-field"
+                        placeholder="Search AI spam users..."
+                    >
+                    <button id="clearAllAISpamUsersBtn" class="btn btn-danger">Clear All</button>
+                </div>
+
+                <div id="aiSpamUsersList" class="blocked-users-list">
+                    <!-- AI spam users will be populated here -->
+                </div>
+            </section>
+
+            <!-- False Positive Users Section -->
+            <section class="section false-positive-users-section">
+                <div class="section-header">
+                    <h2>误报列表</h2>
+                    <p class="counter">Count: <span id="falsePositiveUserCount">0</span></p>
+                </div>
+
+                <div class="blocked-users-tools">
+                    <input
+                        type="text"
+                        id="falsePositiveUserFilter"
+                        class="input-field"
+                        placeholder="Search false positives..."
+                    >
+                    <button id="clearAllFalsePositiveUsersBtn" class="btn btn-danger">Clear All</button>
+                </div>
+
+                <div id="falsePositiveUsersList" class="blocked-users-list">
+                    <!-- False positive users will be populated here -->
+                </div>
+            </section>
         </main>
 
         <!-- Toast notification -->

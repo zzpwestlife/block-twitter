@@ -22,6 +22,8 @@ let falsePositiveUsers = {};
 let aiSpamUsers = {};
 let filteredKeywords = [];
 let filteredUsers = {};
+let filteredAISpamUsers = {};
+let filteredFalsePositiveUsers = {};
 
 document.addEventListener('DOMContentLoaded', initializeOptions);
 
@@ -49,6 +51,17 @@ function initializeOptions() {
 
     userFilter.addEventListener('input', filterUsers);
     clearAllBtn.addEventListener('click', clearAllUsers);
+
+    // Setup event listeners for AI lists
+    const aiSpamUserFilter = document.getElementById('aiSpamUserFilter');
+    const clearAllAISpamUsersBtn = document.getElementById('clearAllAISpamUsersBtn');
+    const falsePositiveUserFilter = document.getElementById('falsePositiveUserFilter');
+    const clearAllFalsePositiveUsersBtn = document.getElementById('clearAllFalsePositiveUsersBtn');
+
+    aiSpamUserFilter?.addEventListener('input', filterAISpamUsers);
+    clearAllAISpamUsersBtn?.addEventListener('click', clearAllAISpamUsers);
+    falsePositiveUserFilter?.addEventListener('input', filterFalsePositiveUsers);
+    clearAllFalsePositiveUsersBtn?.addEventListener('click', clearAllFalsePositiveUsers);
 
     // Setup export/import
     const exportBtn = document.getElementById('exportBtn');
@@ -243,9 +256,13 @@ function loadStorageData() {
 
         falsePositiveUsers = items[STORAGE_KEYS.falsePositiveUsers] || {};
         aiSpamUsers = items[STORAGE_KEYS.aiSpamUsers] || {};
+        filteredAISpamUsers = aiSpamUsers;
+        filteredFalsePositiveUsers = falsePositiveUsers;
 
         renderKeywords();
         renderBlockedUsers();
+        renderAISpamUsers();
+        renderFalsePositiveUsers();
         updateCounters();
     });
 }
@@ -272,10 +289,16 @@ function onStorageChanged(changes, areaName) {
 
     if (changes[STORAGE_KEYS.falsePositiveUsers]) {
         falsePositiveUsers = changes[STORAGE_KEYS.falsePositiveUsers].newValue || {};
+        filteredFalsePositiveUsers = falsePositiveUsers;
+        renderFalsePositiveUsers();
+        updateCounters();
     }
 
     if (changes[STORAGE_KEYS.aiSpamUsers]) {
         aiSpamUsers = changes[STORAGE_KEYS.aiSpamUsers].newValue || {};
+        filteredAISpamUsers = aiSpamUsers;
+        renderAISpamUsers();
+        updateCounters();
     }
 }
 
@@ -473,6 +496,130 @@ function clearAllUsers() {
     });
 }
 
+// ── AI Spam Users ─────────────────────────────────────────────────────────────
+
+function filterAISpamUsers() {
+    const term = (document.getElementById('aiSpamUserFilter')?.value || '').toLowerCase();
+    if (!term) {
+        filteredAISpamUsers = aiSpamUsers;
+    } else {
+        filteredAISpamUsers = {};
+        Object.keys(aiSpamUsers).forEach((u) => {
+            if (u.toLowerCase().includes(term)) filteredAISpamUsers[u] = aiSpamUsers[u];
+        });
+    }
+    renderAISpamUsers();
+}
+
+function renderAISpamUsers() {
+    const list = document.getElementById('aiSpamUsersList');
+    if (!list) return;
+    list.innerHTML = '';
+    const usernames = Object.keys(filteredAISpamUsers || {}).sort();
+    if (usernames.length === 0) {
+        updateCounters();
+        return;
+    }
+    usernames.forEach((username) => {
+        const ts = filteredAISpamUsers[username];
+        const dateStr = ts ? (new Date(ts)).toLocaleDateString() + ' ' + (new Date(ts)).toLocaleTimeString() : '';
+        const item = document.createElement('div');
+        item.className = 'user-item';
+        item.innerHTML = `
+            <div>
+                <div class="user-name">@${escapeHtml(username)}</div>
+                <div class="user-timestamp">${dateStr}</div>
+            </div>
+            <button class="btn btn-small btn-unblock">移除</button>
+        `;
+        item.querySelector('.btn-unblock').addEventListener('click', () => removeAISpamUser(username));
+        list.appendChild(item);
+    });
+    updateCounters();
+}
+
+function removeAISpamUser(username) {
+    delete aiSpamUsers[username];
+    filteredAISpamUsers = { ...aiSpamUsers };
+    chrome.storage.local.set({ [STORAGE_KEYS.aiSpamUsers]: aiSpamUsers }, () => {
+        renderAISpamUsers();
+        showToast('已移除', 'success');
+    });
+}
+
+function clearAllAISpamUsers() {
+    if (Object.keys(aiSpamUsers).length === 0) { showToast('列表为空', 'info'); return; }
+    if (!confirm(`确定要清空全部 ${Object.keys(aiSpamUsers).length} 个 AI 识别垃圾用户记录吗？`)) return;
+    aiSpamUsers = {};
+    filteredAISpamUsers = {};
+    chrome.storage.local.set({ [STORAGE_KEYS.aiSpamUsers]: aiSpamUsers }, () => {
+        renderAISpamUsers();
+        showToast('已清空', 'success');
+    });
+}
+
+// ── False Positive Users ──────────────────────────────────────────────────────
+
+function filterFalsePositiveUsers() {
+    const term = (document.getElementById('falsePositiveUserFilter')?.value || '').toLowerCase();
+    if (!term) {
+        filteredFalsePositiveUsers = falsePositiveUsers;
+    } else {
+        filteredFalsePositiveUsers = {};
+        Object.keys(falsePositiveUsers).forEach((u) => {
+            if (u.toLowerCase().includes(term)) filteredFalsePositiveUsers[u] = falsePositiveUsers[u];
+        });
+    }
+    renderFalsePositiveUsers();
+}
+
+function renderFalsePositiveUsers() {
+    const list = document.getElementById('falsePositiveUsersList');
+    if (!list) return;
+    list.innerHTML = '';
+    const usernames = Object.keys(filteredFalsePositiveUsers || {}).sort();
+    if (usernames.length === 0) {
+        updateCounters();
+        return;
+    }
+    usernames.forEach((username) => {
+        const ts = filteredFalsePositiveUsers[username];
+        const dateStr = ts ? (new Date(ts)).toLocaleDateString() + ' ' + (new Date(ts)).toLocaleTimeString() : '';
+        const item = document.createElement('div');
+        item.className = 'user-item';
+        item.innerHTML = `
+            <div>
+                <div class="user-name">@${escapeHtml(username)}</div>
+                <div class="user-timestamp">${dateStr}</div>
+            </div>
+            <button class="btn btn-small btn-unblock">移除</button>
+        `;
+        item.querySelector('.btn-unblock').addEventListener('click', () => removeFalsePositiveUser(username));
+        list.appendChild(item);
+    });
+    updateCounters();
+}
+
+function removeFalsePositiveUser(username) {
+    delete falsePositiveUsers[username];
+    filteredFalsePositiveUsers = { ...falsePositiveUsers };
+    chrome.storage.local.set({ [STORAGE_KEYS.falsePositiveUsers]: falsePositiveUsers }, () => {
+        renderFalsePositiveUsers();
+        showToast('已移除', 'success');
+    });
+}
+
+function clearAllFalsePositiveUsers() {
+    if (Object.keys(falsePositiveUsers).length === 0) { showToast('列表为空', 'info'); return; }
+    if (!confirm(`确定要清空全部 ${Object.keys(falsePositiveUsers).length} 个误报用户记录吗？`)) return;
+    falsePositiveUsers = {};
+    filteredFalsePositiveUsers = {};
+    chrome.storage.local.set({ [STORAGE_KEYS.falsePositiveUsers]: falsePositiveUsers }, () => {
+        renderFalsePositiveUsers();
+        showToast('已清空', 'success');
+    });
+}
+
 /**
  * Export keywords to JSON file
  */
@@ -601,6 +748,10 @@ function handleImportFile(event) {
 function updateCounters() {
     document.getElementById('keywordCount').textContent = keywords.length;
     document.getElementById('blockedUserCount').textContent = Object.keys(blockedUsers).length;
+    const aiCountEl = document.getElementById('aiSpamUserCount');
+    if (aiCountEl) aiCountEl.textContent = Object.keys(aiSpamUsers).length;
+    const fpCountEl = document.getElementById('falsePositiveUserCount');
+    if (fpCountEl) fpCountEl.textContent = Object.keys(falsePositiveUsers).length;
 }
 
 /**
