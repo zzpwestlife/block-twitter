@@ -308,6 +308,7 @@ class UserHighlighter {
   constructor() {
     this.highlightedPosts = new WeakMap();
     this.postByUsername = new Map();   // username → postElement for batch dismiss
+    this.matchedUsernames = new Set(); // all matched usernames seen in this tab session (deduped)
     this.selectedUsernames = new Set();       // tracks checked usernames for batch operations
     this.onSelectionChanged = null;           // callback when selection changes
   }
@@ -336,6 +337,9 @@ class UserHighlighter {
         return;
       }
 
+      // Track all matched usernames (deduped) so "全选" / counts can work across infinite scroll
+      this.matchedUsernames.add(username);
+
       // Create and insert the indicator badge
       const indicatorBadge = this.createIndicatorBadge(matchedKeywords);
       usernameElement.parentElement?.insertBefore(indicatorBadge, usernameElement.nextSibling);
@@ -353,6 +357,9 @@ class UserHighlighter {
       checkbox.type = 'checkbox';
       checkbox.className = 'bt-select-checkbox';
       checkbox.dataset.username = username;
+      // If user selected this username on a previous "page" (older tweets), reflect it on newly loaded posts
+      checkbox.checked = this.selectedUsernames.has(username);
+      if (checkbox.checked) this.selectedUsernames.add(username);
       checkbox.addEventListener('change', () => {
         if (checkbox.checked) {
           this.selectedUsernames.add(username);
@@ -378,6 +385,12 @@ class UserHighlighter {
       postElement.classList.add('bt-keyword-matched');
 
       console.log(`[block-twitter] Highlighted ${username} for keywords: ${matchedKeywords.join(', ')}`);
+
+      // If the batch toolbar is already visible (has selections), refresh counts as new posts load.
+      // Avoid doing extra work when nothing is selected.
+      if (this.onSelectionChanged && this.selectedUsernames.size > 0) {
+        this.onSelectionChanged();
+      }
     } catch (error) {
       console.error('[block-twitter] Error highlighting post:', error);
     }
@@ -759,6 +772,7 @@ class UserHighlighter {
     postElement.classList.remove('bt-keyword-matched');
     this.highlightedPosts.delete(postElement);
     this.postByUsername.delete(username);
+    this.matchedUsernames.delete(username);
     this.selectedUsernames.delete(username);
 
     for (const cls of ['.bt-indicator-badge', '.bt-block-button', '.bt-true-block-button',
@@ -781,11 +795,15 @@ class UserHighlighter {
    * Select all matched posts for batch operations
    */
   selectAll() {
+    // Select all matched usernames we've seen in this tab session (not just currently mounted DOM nodes).
+    // This fixes "翻页/滚动后全选不包含上一页" and makes counts stable & deduped by username.
+    for (const username of this.matchedUsernames) {
+      this.selectedUsernames.add(username);
+    }
+
+    // Reflect selection on currently visible checkboxes
     const checkboxes = document.querySelectorAll('.bt-select-checkbox');
-    checkboxes.forEach(checkbox => {
-      checkbox.checked = true;
-      this.selectedUsernames.add(checkbox.dataset.username);
-    });
+    checkboxes.forEach(checkbox => { checkbox.checked = true; });
     if (this.onSelectionChanged) {
       this.onSelectionChanged();
     }
@@ -943,7 +961,11 @@ class BatchBlockToolbar {
     if (!this.toolbar) return;
 
     const selectedCount = this.highlighter.selectedUsernames.size;
-    const totalCount = document.querySelectorAll('.bt-select-checkbox').length;
+    // Use deduped usernames (not checkbox DOM count) to avoid duplicates + keep stable across infinite scroll "翻页"
+    const totalCount =
+      this.highlighter.matchedUsernames
+        ? this.highlighter.matchedUsernames.size
+        : new Set(Array.from(document.querySelectorAll('.bt-select-checkbox')).map(cb => cb.dataset.username)).size;
 
     if (selectedCount === 0) {
       this.toolbar.style.display = 'none';
