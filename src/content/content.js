@@ -1718,6 +1718,45 @@ class AIDetector {
     this.backend = null; // 'chrome-ai' | 'api'
   }
 
+  static _normalizeKeyword(s) {
+    if (!s) return '';
+    return String(s).trim().replace(/\s+/g, ' ');
+  }
+
+  static _extractKeywordGroups(keywords) {
+    const uniq = new Set();
+    const cleaned = [];
+    for (const k of (Array.isArray(keywords) ? keywords : [])) {
+      const s = AIDetector._normalizeKeyword(k);
+      if (!s) continue;
+      if (uniq.has(s)) continue;
+      uniq.add(s);
+      cleaned.push(s);
+    }
+
+    const groups = { url: [], sex: [], master: [], offline: [], emoji_only: [], other: [] };
+    const re = {
+      url: /https?:\/\//i,
+      sex: /(招嫖|约炮|固炮|破处|做爱|骚货|胸大|尤物|免费福利|招p|操|口交|无码视频|啪啪|上床)/i,
+      master: /(主人|小狗|调教|等主|找主)/i,
+      offline: /(同城|线下|附近|万达|蹲个|男大|体育生|哥哥线下|弟弟线下|\bdd\b)/i,
+    };
+
+    for (const s of cleaned) {
+      if (re.url.test(s)) { groups.url.push(s); continue; }
+      if (re.sex.test(s)) { groups.sex.push(s); continue; }
+      if (re.master.test(s)) { groups.master.push(s); continue; }
+      if (re.offline.test(s)) { groups.offline.push(s); continue; }
+
+      // emoji-only heuristic: after removing word chars, nothing remains but symbols/spaces/newlines
+      const letters = s.replace(/[\W_]+/gu, '');
+      if (!letters && s.length > 0) { groups.emoji_only.push(s); continue; }
+
+      groups.other.push(s);
+    }
+    return groups;
+  }
+
   async initialize() {
     if (window.ai?.languageModel) {
       try {
