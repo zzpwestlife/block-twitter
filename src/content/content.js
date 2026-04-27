@@ -2474,6 +2474,11 @@ class ContentScriptManager {
         return;
       }
 
+      // Status page: do NOT mark / add buttons for the root tweet (main post)
+      if (this._isStatusPage() && this._isRootTweet(postElement)) {
+        return;
+      }
+
       // Add manual classify button to every visible post (skips blocked)
       if (username) this.highlighter.addManualClassifyButton(postElement, username);
 
