@@ -24,6 +24,8 @@ let filteredKeywords = [];
 let filteredUsers = {};
 let filteredAISpamUsers = {};
 let filteredFalsePositiveUsers = {};
+// Hidden users multi-select (Task2)
+const selectedHiddenUsers = new Set();
 
 document.addEventListener('DOMContentLoaded', initializeOptions);
 
@@ -51,6 +53,16 @@ function initializeOptions() {
 
     userFilter.addEventListener('input', filterUsers);
     clearAllBtn.addEventListener('click', clearAllUsers);
+
+    // Batch true-block UI (Task2; actual batch logic will be implemented in Task3/4)
+    const batchSelectAllHiddenBtn = document.getElementById('batchSelectAllHiddenBtn');
+    const batchTrueBlockBtn = document.getElementById('batchTrueBlockBtn');
+    const batchCancelTrueBlockBtn = document.getElementById('batchCancelTrueBlockBtn');
+
+    batchSelectAllHiddenBtn?.addEventListener('click', toggleSelectAllHiddenUsers);
+    batchTrueBlockBtn?.addEventListener('click', startBatchTrueBlock);
+    batchCancelTrueBlockBtn?.addEventListener('click', cancelBatchTrueBlock);
+    updateBatchSelectedCount();
 
     // Setup event listeners for AI lists
     const aiSpamUserFilter = document.getElementById('aiSpamUserFilter');
@@ -410,10 +422,77 @@ function renderKeywords() {
  */
 function unblockUser(username) {
     delete blockedUsers[username];
+    selectedHiddenUsers.delete(username);
+    updateBatchSelectedCount();
 
     chrome.storage.local.set({ [STORAGE_KEYS.blockedUsers]: blockedUsers }, () => {
         showToast(`User @${username} shown`, 'success');
     });
+}
+
+function syncSelectedHiddenUsersWithBlockedUsers() {
+    const allowed = new Set(Object.keys(blockedUsers || {}));
+    Array.from(selectedHiddenUsers).forEach((u) => {
+        if (!allowed.has(u)) selectedHiddenUsers.delete(u);
+    });
+}
+
+function getVisibleHiddenUsernames() {
+    return Object.keys(filteredUsers || {});
+}
+
+function updateBatchSelectedCount() {
+    const countEl = document.getElementById('batchSelectedHiddenCount');
+    const selectAllBtn = document.getElementById('batchSelectAllHiddenBtn');
+    const startBtn = document.getElementById('batchTrueBlockBtn');
+
+    if (countEl) countEl.textContent = String(selectedHiddenUsers.size);
+
+    // Update select-all label based on current visible list state
+    const visible = getVisibleHiddenUsernames();
+    const allVisibleSelected =
+        visible.length > 0 && visible.every((u) => selectedHiddenUsers.has(u));
+    if (selectAllBtn) selectAllBtn.textContent = allVisibleSelected ? '取消全选' : '全选';
+
+    if (startBtn) startBtn.disabled = selectedHiddenUsers.size === 0;
+}
+
+function toggleSelectAllHiddenUsers() {
+    const visible = getVisibleHiddenUsernames();
+    if (visible.length === 0) {
+        updateBatchSelectedCount();
+        return;
+    }
+
+    const allVisibleSelected = visible.every((u) => selectedHiddenUsers.has(u));
+    if (allVisibleSelected) {
+        visible.forEach((u) => selectedHiddenUsers.delete(u));
+    } else {
+        visible.forEach((u) => selectedHiddenUsers.add(u));
+    }
+
+    // Refresh list so checkboxes reflect the latest selection state.
+    renderBlockedUsers();
+}
+
+function startBatchTrueBlock() {
+    if (selectedHiddenUsers.size === 0) {
+        showToast('请先选择要屏蔽的用户', 'info');
+        return;
+    }
+
+    // Task3/4 will replace this placeholder with Port-based batch processing.
+    const progress = document.getElementById('batchTrueBlockProgress');
+    if (progress) {
+        progress.style.display = 'block';
+        progress.textContent = `已选择 ${selectedHiddenUsers.size} 个用户。批量屏蔽功能将在后续任务启用。`;
+    }
+    showToast('批量屏蔽功能将在后续任务启用（Task3/4）', 'info');
+}
+
+function cancelBatchTrueBlock() {
+    // Task3/4 will implement actual cancellation via Port messaging.
+    showToast('停止功能将在后续任务启用（Task3/4）', 'info');
 }
 
 /**
@@ -443,9 +522,12 @@ function renderBlockedUsers() {
     const list = document.getElementById('blockedUsersList');
     list.innerHTML = '';
 
+    syncSelectedHiddenUsersWithBlockedUsers();
+
     const usernames = Object.keys(filteredUsers).sort();
 
     if (usernames.length === 0) {
+        updateBatchSelectedCount();
         return;
     }
 
@@ -456,22 +538,44 @@ function renderBlockedUsers() {
 
         const item = document.createElement('div');
         item.className = 'user-item';
-        item.innerHTML = `
-            <div>
-                <div class="user-name">@${escapeHtml(username)}</div>
-                <div class="user-timestamp">${dateStr}</div>
-            </div>
-            <button class="btn btn-small btn-unblock">Show</button>
+        const left = document.createElement('div');
+        left.style.display = 'flex';
+        left.style.alignItems = 'center';
+        left.style.gap = '10px';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'bt-hidden-select';
+        cb.dataset.username = username;
+        cb.checked = selectedHiddenUsers.has(username);
+        cb.addEventListener('change', () => {
+            if (cb.checked) selectedHiddenUsers.add(username);
+            else selectedHiddenUsers.delete(username);
+            updateBatchSelectedCount();
+        });
+
+        const meta = document.createElement('div');
+        meta.innerHTML = `
+            <div class="user-name">@${escapeHtml(username)}</div>
+            <div class="user-timestamp">${dateStr}</div>
         `;
 
-        item.querySelector('.btn-unblock').addEventListener('click', () => {
-            unblockUser(username);
-        });
+        left.appendChild(cb);
+        left.appendChild(meta);
+
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-small btn-unblock';
+        btn.textContent = 'Show';
+        btn.addEventListener('click', () => unblockUser(username));
+
+        item.appendChild(left);
+        item.appendChild(btn);
 
         list.appendChild(item);
     });
 
     updateCounters();
+    updateBatchSelectedCount();
 }
 
 /**
@@ -490,6 +594,8 @@ function clearAllUsers() {
     if (!confirmed) return;
 
     blockedUsers = {};
+    selectedHiddenUsers.clear();
+    updateBatchSelectedCount();
 
     chrome.storage.local.set({ [STORAGE_KEYS.blockedUsers]: blockedUsers }, () => {
         showToast('All hidden users cleared', 'success');

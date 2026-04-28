@@ -155,7 +155,17 @@
                     >
 
                     <button id="clearAllBtn" class="btn btn-danger">Clear All</button>
+
+                    <!-- Batch true-block (X native block) UI -->
+                    <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+                        <button id="batchSelectAllHiddenBtn" class="btn btn-secondary">全选</button>
+                        <span class="counter">已选 <span id="batchSelectedHiddenCount">0</span></span>
+                        <button id="batchTrueBlockBtn" class="btn btn-danger">批量屏蔽（X）</button>
+                        <button id="batchCancelTrueBlockBtn" class="btn btn-secondary" style="display:none;">停止</button>
+                    </div>
                 </div>
+
+                <div id="batchTrueBlockProgress" class="batch-progress" style="display:none;"></div>
 
                 <div id="blockedUsersList" class="blocked-users-list">
                     <!-- Hidden users will be populated here -->
