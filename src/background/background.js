@@ -571,6 +571,70 @@ ${postsText}`;
   return { success: true, labels };
 }
 
+// ── Batch true-block Port (Task3; placeholder runner) ──────────────────────────
+
+const BATCH_TRUE_BLOCK_PORT_NAME = 'bt-batch-true-block';
+let activeBatchTrueBlockJob = null; // { cancelled, done, total, port }
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function cancelJob() {
+  if (activeBatchTrueBlockJob) {
+    activeBatchTrueBlockJob.cancelled = true;
+  }
+}
+
+async function startJob(port, usernames) {
+  // Cancel any previous job (placeholder semantics)
+  cancelJob();
+
+  const list = Array.isArray(usernames) ? usernames.filter(Boolean) : [];
+  const job = { cancelled: false, done: 0, total: list.length, port };
+  activeBatchTrueBlockJob = job;
+
+  try {
+    for (let i = 0; i < list.length; i++) {
+      if (job.cancelled) break;
+      const username = list[i];
+      job.done = i;
+      port.postMessage({ type: 'progress', done: i, total: list.length, username });
+      // Placeholder pacing so UI can observe progress.
+      await sleep(30);
+    }
+
+    const finalDone = job.cancelled ? job.done : list.length;
+    port.postMessage({
+      type: 'done',
+      done: finalDone,
+      total: list.length,
+      cancelled: job.cancelled
+    });
+  } catch (err) {
+    console.error('[batch-true-block] placeholder job error:', err);
+    try {
+      port.postMessage({ type: 'error', error: err?.message || String(err) });
+    } catch (_) {
+      // ignore
+    }
+  } finally {
+    if (activeBatchTrueBlockJob === job) activeBatchTrueBlockJob = null;
+  }
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name !== BATCH_TRUE_BLOCK_PORT_NAME) return;
+
+  port.onMessage.addListener((msg) => {
+    if (!msg || typeof msg !== 'object') return;
+    if (msg.type === 'start') startJob(port, msg.usernames);
+    if (msg.type === 'cancel') cancelJob();
+  });
+
+  port.onDisconnect.addListener(() => {
+    if (activeBatchTrueBlockJob?.port === port) cancelJob();
+  });
+});
+
 /**
  * Handle incoming messages from popup/options pages or content scripts
  */

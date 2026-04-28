@@ -28,4 +28,10 @@ assert.match(optionsHtml, /id="batchSelectedHiddenCount"/, '缺少 batchSelected
 assert.match(optionsHtml, /id="batchCancelTrueBlockBtn"/, '缺少 batchCancelTrueBlockBtn');
 assert.match(optionsHtml, /id="batchTrueBlockProgress"/, '缺少 batchTrueBlockProgress');
 
+const optionsJs = fs.readFileSync(
+  path.join(root, 'src/options/options.js'),
+  'utf8'
+);
+assert.match(optionsJs, /bt-batch-true-block/, 'options.js 缺少 bt-batch-true-block port 名称');
+
 console.log('OK: options batch true-block smoke test passed');

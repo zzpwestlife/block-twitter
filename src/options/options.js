@@ -27,6 +27,11 @@ let filteredFalsePositiveUsers = {};
 // Hidden users multi-select (Task2)
 const selectedHiddenUsers = new Set();
 
+// Batch true-block (Task3)
+const BATCH_TRUE_BLOCK_PORT_NAME = 'bt-batch-true-block';
+let batchPort = null;
+let batchTrueBlockProgress = null; // { total, done, current?, status? }
+
 document.addEventListener('DOMContentLoaded', initializeOptions);
 
 /**
@@ -454,7 +459,7 @@ function updateBatchSelectedCount() {
         visible.length > 0 && visible.every((u) => selectedHiddenUsers.has(u));
     if (selectAllBtn) selectAllBtn.textContent = allVisibleSelected ? '取消全选' : '全选';
 
-    if (startBtn) startBtn.disabled = selectedHiddenUsers.size === 0;
+    if (startBtn) startBtn.disabled = selectedHiddenUsers.size === 0 || isBatchTrueBlockRunning();
 }
 
 function toggleSelectAllHiddenUsers() {
@@ -475,24 +480,107 @@ function toggleSelectAllHiddenUsers() {
     renderBlockedUsers();
 }
 
+function isBatchTrueBlockRunning() {
+    return batchTrueBlockProgress?.status === 'running';
+}
+
+function setBatchTrueBlockControls(running) {
+    const startBtn = document.getElementById('batchTrueBlockBtn');
+    const cancelBtn = document.getElementById('batchCancelTrueBlockBtn');
+
+    if (startBtn) startBtn.disabled = running || selectedHiddenUsers.size === 0;
+    if (cancelBtn) cancelBtn.style.display = running ? 'inline-block' : 'none';
+}
+
+function renderBatchTrueBlockProgressText(text, visible = true) {
+    const el = document.getElementById('batchTrueBlockProgress');
+    if (!el) return;
+    el.style.display = visible ? 'block' : 'none';
+    if (visible) el.textContent = text || '';
+}
+
+function getBatchPort() {
+    if (batchPort) return batchPort;
+    batchPort = chrome.runtime.connect({ name: BATCH_TRUE_BLOCK_PORT_NAME });
+    batchPort.onMessage.addListener(onBatchMessage);
+    batchPort.onDisconnect.addListener(() => {
+        batchPort = null;
+        if (isBatchTrueBlockRunning()) {
+            batchTrueBlockProgress = { ...(batchTrueBlockProgress || {}), status: 'error' };
+            setBatchTrueBlockControls(false);
+            renderBatchTrueBlockProgressText('批量屏蔽连接已断开（后台可能已重启）。请重试。', true);
+        }
+    });
+    return batchPort;
+}
+
 function startBatchTrueBlock() {
     if (selectedHiddenUsers.size === 0) {
         showToast('请先选择要屏蔽的用户', 'info');
         return;
     }
 
-    // Task3/4 will replace this placeholder with Port-based batch processing.
-    const progress = document.getElementById('batchTrueBlockProgress');
-    if (progress) {
-        progress.style.display = 'block';
-        progress.textContent = `已选择 ${selectedHiddenUsers.size} 个用户。批量屏蔽功能将在后续任务启用。`;
-    }
-    showToast('批量屏蔽功能将在后续任务启用（Task3/4）', 'info');
+    const usernames = Array.from(selectedHiddenUsers);
+    batchTrueBlockProgress = { status: 'running', done: 0, total: usernames.length, current: null };
+
+    setBatchTrueBlockControls(true);
+    renderBatchTrueBlockProgressText(`准备开始批量屏蔽：共 ${usernames.length} 个用户…`, true);
+
+    getBatchPort().postMessage({ type: 'start', usernames });
 }
 
 function cancelBatchTrueBlock() {
-    // Task3/4 will implement actual cancellation via Port messaging.
-    showToast('停止功能将在后续任务启用（Task3/4）', 'info');
+    if (!isBatchTrueBlockRunning()) return;
+    renderBatchTrueBlockProgressText('正在停止…', true);
+    getBatchPort().postMessage({ type: 'cancel' });
+}
+
+function onBatchMessage(msg) {
+    if (!msg || typeof msg !== 'object') return;
+
+    if (msg.type === 'progress') {
+        const total = Number(msg.total ?? batchTrueBlockProgress?.total ?? 0);
+        const done = Number(msg.done ?? batchTrueBlockProgress?.done ?? 0);
+        const username = msg.username || msg.current || null;
+
+        batchTrueBlockProgress = {
+            status: 'running',
+            total,
+            done,
+            current: username
+        };
+
+        const cur = username ? `@${username}` : '';
+        renderBatchTrueBlockProgressText(`进度：${done}/${total} ${cur}`, true);
+        setBatchTrueBlockControls(true);
+        return;
+    }
+
+    if (msg.type === 'done') {
+        batchTrueBlockProgress = { ...(batchTrueBlockProgress || {}), status: 'done' };
+        setBatchTrueBlockControls(false);
+
+        const total = Number(msg.total ?? batchTrueBlockProgress.total ?? 0);
+        const done = Number(msg.done ?? total);
+        const cancelled = Boolean(msg.cancelled);
+
+        renderBatchTrueBlockProgressText(
+            cancelled ? `已停止：已处理 ${done}/${total}` : `已完成：已处理 ${done}/${total}`,
+            true
+        );
+        showToast(cancelled ? '批量屏蔽已停止' : '批量屏蔽已完成', 'success');
+        updateBatchSelectedCount();
+        return;
+    }
+
+    if (msg.type === 'error') {
+        batchTrueBlockProgress = { ...(batchTrueBlockProgress || {}), status: 'error' };
+        setBatchTrueBlockControls(false);
+        const err = msg.error || msg.message || '未知错误';
+        renderBatchTrueBlockProgressText(`错误：${err}`, true);
+        showToast(`批量屏蔽失败：${err}`, 'error');
+        updateBatchSelectedCount();
+    }
 }
 
 /**
