@@ -571,12 +571,243 @@ ${postsText}`;
   return { success: true, labels };
 }
 
-// ── Batch true-block Port (Task3; placeholder runner) ──────────────────────────
+// ── Batch true-block Port (Task4; throttled runner) ───────────────────────────
 
 const BATCH_TRUE_BLOCK_PORT_NAME = 'bt-batch-true-block';
-let activeBatchTrueBlockJob = null; // { cancelled, done, total, port }
+let activeBatchTrueBlockJob = null; // { cancelled, done, total, ok, already, failed, port, xTabId }
+let cachedXTabId = null;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const jitter = (min, max) => Math.floor(min + Math.random() * (max - min + 1));
+
+function normalizeHandle(username) {
+  const s = String(username || '').trim();
+  return s.startsWith('@') ? s.slice(1) : s;
+}
+
+function getBlockedUsersFromStorage() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['blockedUsers'], (data) => {
+      if (chrome.runtime.lastError) {
+        console.error('[batch-true-block] storage get blockedUsers error:', chrome.runtime.lastError);
+        resolve({});
+      } else {
+        resolve(data.blockedUsers || {});
+      }
+    });
+  });
+}
+
+function setBlockedUsersToStorage(blockedUsers) {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ blockedUsers }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('[batch-true-block] storage set blockedUsers error:', chrome.runtime.lastError);
+        resolve(false);
+      } else {
+        resolve(true);
+      }
+    });
+  });
+}
+
+function tabsQuery(queryInfo) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.query(queryInfo, (tabs) => {
+      if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+      resolve(tabs || []);
+    });
+  });
+}
+
+function tabsCreate(createProperties) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.create(createProperties, (tab) => {
+      if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+      resolve(tab);
+    });
+  });
+}
+
+function tabsGet(tabId) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+      resolve(tab);
+    });
+  });
+}
+
+function tabsUpdate(tabId, updateProperties) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.update(tabId, updateProperties, (tab) => {
+      if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+      resolve(tab);
+    });
+  });
+}
+
+function tabsSendMessage(tabId, message) {
+  return new Promise((resolve, reject) => {
+    chrome.tabs.sendMessage(tabId, message, (response) => {
+      if (chrome.runtime.lastError) return reject(chrome.runtime.lastError);
+      resolve(response);
+    });
+  });
+}
+
+async function cancellableSleep(job, ms) {
+  const endAt = Date.now() + ms;
+  while (Date.now() < endAt) {
+    if (job.cancelled) return false;
+    // Chunk it so cancel is responsive.
+    // 250ms is a good compromise between responsiveness and overhead.
+    await sleep(Math.min(250, endAt - Date.now()));
+  }
+  return !job.cancelled;
+}
+
+function safePostProgress(job, extra = {}) {
+  const port = job?.port;
+  if (!port) return;
+  try {
+    port.postMessage({
+      type: 'progress',
+      done: job.done,
+      total: job.total,
+      ok: job.ok,
+      already: job.already,
+      failed: job.failed,
+      last: job.last,
+      ...extra
+    });
+  } catch (_) {
+    // ignore (port may have disconnected)
+  }
+}
+
+function safePost(port, msg) {
+  try {
+    port.postMessage(msg);
+  } catch (_) {
+    // ignore
+  }
+}
+
+async function ensureXTab(job) {
+  if (job.cancelled) throw new Error('cancelled');
+
+  // 1) Try cached tabId
+  if (cachedXTabId) {
+    try {
+      const t = await tabsGet(cachedXTabId);
+      const url = String(t?.url || '');
+      if (url.includes('://x.com/') && !t.active) {
+        job.xTabId = cachedXTabId;
+        return cachedXTabId;
+      }
+    } catch (_) {
+      // Tab might be gone; fall through
+    }
+    cachedXTabId = null;
+  }
+
+  // 2) Try reuse an existing, non-active x.com tab
+  try {
+    const tabs = await tabsQuery({ url: ['*://x.com/*'] });
+    const candidate = tabs.find(t => !t.active);
+    if (candidate?.id != null) {
+      cachedXTabId = candidate.id;
+      job.xTabId = candidate.id;
+      return candidate.id;
+    }
+  } catch (e) {
+    console.warn('[batch-true-block] tabs.query failed, will create new tab:', e);
+  }
+
+  // 3) Create new background tab
+  const tab = await tabsCreate({ url: 'https://x.com/home', active: false });
+  cachedXTabId = tab.id;
+  job.xTabId = tab.id;
+  return tab.id;
+}
+
+async function waitForTabComplete(job, tabId, { timeoutMs = 45000 } = {}) {
+  if (job.cancelled) throw new Error('cancelled');
+
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('timeout waiting for tab complete'));
+    }, timeoutMs);
+
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timeout);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      chrome.tabs.onRemoved.removeListener(onRemoved);
+    };
+
+    const onRemoved = (removedTabId) => {
+      if (removedTabId !== tabId) return;
+      cleanup();
+      reject(new Error('tab removed'));
+    };
+
+    const onUpdated = (updatedTabId, changeInfo) => {
+      if (updatedTabId !== tabId) return;
+      if (changeInfo.status !== 'complete') return;
+      cleanup();
+      resolve(true);
+    };
+
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.tabs.onRemoved.addListener(onRemoved);
+
+    // Cancel polling
+    const cancelTick = async () => {
+      if (done) return;
+      if (job.cancelled) {
+        cleanup();
+        reject(new Error('cancelled'));
+        return;
+      }
+      setTimeout(cancelTick, 200);
+    };
+    cancelTick();
+  });
+}
+
+async function navigateToProfile(job, tabId, username) {
+  const handle = normalizeHandle(username);
+  if (!handle) throw new Error('empty username');
+  const url = `https://x.com/${handle}`;
+  // Updating URL does not activate the tab; keep it background.
+  await tabsUpdate(tabId, { url });
+  await waitForTabComplete(job, tabId, { timeoutMs: 45000 });
+  return url;
+}
+
+async function runTrueBlockInTab(job, tabId, username) {
+  // Content script injection can lag. Retry a bit.
+  const maxTry = 3;
+  let lastErr = null;
+  for (let attempt = 1; attempt <= maxTry; attempt++) {
+    if (job.cancelled) throw new Error('cancelled');
+    try {
+      // Expected: { status: 'success'|'already_blocked'|'failed', error? }
+      const res = await tabsSendMessage(tabId, { type: 'bt_trueBlockProfile', username });
+      return res || { status: 'failed', error: 'empty response' };
+    } catch (e) {
+      lastErr = e;
+      // "Receiving end does not exist." is common when content script not ready yet.
+      await cancellableSleep(job, jitter(800, 1400));
+    }
+  }
+  return { status: 'failed', error: lastErr?.message || String(lastErr || 'sendMessage failed') };
+}
 
 function cancelJob() {
   if (activeBatchTrueBlockJob) {
@@ -585,37 +816,112 @@ function cancelJob() {
 }
 
 async function startJob(port, usernames) {
-  // Cancel any previous job (placeholder semantics)
+  // Cancel any previous job
   cancelJob();
 
   const list = Array.isArray(usernames) ? usernames.filter(Boolean) : [];
-  const job = { cancelled: false, done: 0, total: list.length, port };
+  const job = {
+    cancelled: false,
+    done: 0,
+    total: list.length,
+    ok: 0,
+    already: 0,
+    failed: 0,
+    last: null,
+    port,
+    xTabId: null
+  };
   activeBatchTrueBlockJob = job;
 
   try {
+    if (list.length === 0) {
+      safePost(port, { type: 'done', done: 0, total: 0, cancelled: false, ok: 0, already: 0, failed: 0 });
+      return;
+    }
+
+    // Cache blockedUsers once, then mutate+set on each success/already step.
+    // (No repeated get calls.)
+    let blockedUsersCache = await getBlockedUsersFromStorage();
+
     for (let i = 0; i < list.length; i++) {
-      if (job.cancelled) break;
       const username = list[i];
-      job.done = i;
-      port.postMessage({ type: 'progress', done: i, total: list.length, username });
-      // Placeholder pacing so UI can observe progress.
-      await sleep(30);
+      if (job.cancelled) break;
+
+      // Per-user throttle
+      safePostProgress(job, { username, step: 'throttle' });
+      const okSleep = await cancellableSleep(job, jitter(1500, 3000));
+      if (!okSleep) break;
+
+      // Ensure tab
+      safePostProgress(job, { username, step: 'ensure_tab' });
+      const tabId = await ensureXTab(job);
+      if (job.cancelled) break;
+
+      // Navigate
+      safePostProgress(job, { username, step: 'navigate' });
+      await navigateToProfile(job, tabId, username);
+      if (job.cancelled) break;
+
+      // True block via content script
+      safePostProgress(job, { username, step: 'true_block' });
+      const res = await runTrueBlockInTab(job, tabId, username);
+
+      const status = String(res?.status || 'failed');
+      job.last = { username, status };
+      if (status === 'success') job.ok += 1;
+      else if (status === 'already_blocked') job.already += 1;
+      else job.failed += 1;
+
+      // Success or already_blocked: remove from extension's hidden list (blockedUsers)
+      if (status === 'success' || status === 'already_blocked') {
+        const raw = String(username || '').trim();
+        const alt = raw.startsWith('@') ? raw.slice(1) : `@${raw}`;
+        let changed = false;
+        if (raw && Object.prototype.hasOwnProperty.call(blockedUsersCache, raw)) {
+          delete blockedUsersCache[raw];
+          changed = true;
+        }
+        if (alt && Object.prototype.hasOwnProperty.call(blockedUsersCache, alt)) {
+          delete blockedUsersCache[alt];
+          changed = true;
+        }
+        if (changed) {
+          safePostProgress(job, { username, step: 'update_storage' });
+          await setBlockedUsersToStorage(blockedUsersCache);
+        }
+      }
+
+      // Mark this item as done (count processed items)
+      job.done = i + 1;
+      safePostProgress(job, { username, step: 'done_item' });
+
+      // Every 20 items, take an extra longer rest
+      if (job.cancelled) break;
+      if (job.done % 20 === 0 && job.done < list.length) {
+        safePostProgress(job, { username, step: 'extra_rest' });
+        const okExtra = await cancellableSleep(job, jitter(8000, 15000));
+        if (!okExtra) break;
+      }
     }
 
     const finalDone = job.cancelled ? job.done : list.length;
-    port.postMessage({
+    safePost(port, {
       type: 'done',
       done: finalDone,
       total: list.length,
-      cancelled: job.cancelled
+      cancelled: job.cancelled,
+      ok: job.ok,
+      already: job.already,
+      failed: job.failed,
+      last: job.last
     });
   } catch (err) {
-    console.error('[batch-true-block] placeholder job error:', err);
-    try {
-      port.postMessage({ type: 'error', error: err?.message || String(err) });
-    } catch (_) {
-      // ignore
+    if (String(err?.message || err) === 'cancelled') {
+      safePost(port, { type: 'done', done: job.done, total: job.total, cancelled: true, ok: job.ok, already: job.already, failed: job.failed, last: job.last });
+      return;
     }
+    console.error('[batch-true-block] job error:', err);
+    safePost(port, { type: 'error', error: err?.message || String(err) });
   } finally {
     if (activeBatchTrueBlockJob === job) activeBatchTrueBlockJob = null;
   }
