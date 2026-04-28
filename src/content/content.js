@@ -1709,6 +1709,125 @@ class TrueBlocker {
 }
 
 // ============================================================================
+// 5c. ProfileBlocker - Automate X's native block flow on a profile page
+// ============================================================================
+
+class ProfileBlocker {
+  static sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+
+  static _pressEscape() {
+    document.dispatchEvent(new KeyboardEvent('keydown', {
+      key: 'Escape',
+      code: 'Escape',
+      bubbles: true,
+      cancelable: true
+    }));
+  }
+
+  static _textOf(el) {
+    return (el?.textContent || '').trim();
+  }
+
+  static async blockCurrentProfile(username) {
+    try {
+      const handle = (username || '').replace('@', '').toLowerCase();
+      if (!handle) return { status: 'failed', error: 'missing username' };
+
+      // Not fatal; best-effort guard
+      if (!location?.pathname?.toLowerCase?.().includes('/' + handle)) {
+        console.warn('[block-twitter] ProfileBlocker: pathname does not match username', {
+          pathname: location?.pathname,
+          username
+        });
+      }
+
+      // Close any lingering menu/dialog from a previous operation
+      ProfileBlocker._pressEscape();
+      await ProfileBlocker.sleep(300);
+
+      // Open profile user actions ("More") menu
+      const selectors = [
+        '[data-testid="userActions"] [data-testid="userActionsButton"]',
+        '[data-testid="userActionsButton"]',
+        'button[data-testid="userActions"]',
+        '[data-testid="userActions"] button',
+        '[data-testid="userActions"]',
+        'button[aria-label*="More"]',
+        'button[aria-label*="更多"]'
+      ];
+
+      let btn = null;
+      for (const sel of selectors) {
+        const el = document.querySelector(sel);
+        if (!el) continue;
+        btn = el.tagName === 'BUTTON' ? el : (el.querySelector?.('button') || el);
+        break;
+      }
+
+      if (!btn) return { status: 'failed', error: 'user actions button not found' };
+
+      btn.click();
+      await ProfileBlocker.sleep(700);
+
+      const items = Array.from(document.querySelectorAll('[role="menuitem"]'));
+      const unblock = items.find((it) => /解除屏蔽|unblock/i.test(ProfileBlocker._textOf(it)));
+      if (unblock) {
+        ProfileBlocker._pressEscape();
+        await ProfileBlocker.sleep(200);
+        return { status: 'already_blocked' };
+      }
+
+      const block = items.find((it) => {
+        const t = ProfileBlocker._textOf(it);
+        if (!t) return false;
+        if (/解除屏蔽|unblock/i.test(t)) return false;
+        return /屏蔽|block/i.test(t);
+      });
+
+      if (!block) {
+        ProfileBlocker._pressEscape();
+        await ProfileBlocker.sleep(250);
+        return { status: 'failed', error: 'block menu item not found' };
+      }
+
+      block.click();
+      await ProfileBlocker.sleep(300);
+
+      const ok = await TrueBlocker.waitAndConfirm();
+      if (ok) {
+        await TrueBlocker.waitForDialogClose();
+        ProfileBlocker._pressEscape();
+        await ProfileBlocker.sleep(150);
+        return { status: 'success' };
+      }
+
+      ProfileBlocker._pressEscape();
+      await ProfileBlocker.sleep(250);
+      return { status: 'failed', error: 'confirm not found' };
+    } catch (e) {
+      try {
+        ProfileBlocker._pressEscape();
+        await ProfileBlocker.sleep(200);
+      } catch (_) {
+        // ignore
+      }
+      return { status: 'failed', error: String(e?.message || e) };
+    }
+  }
+}
+
+// Handle background automation messages (MV3 tabs.sendMessage)
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === 'bt_trueBlockProfile') {
+    ProfileBlocker.blockCurrentProfile(message.username).then(sendResponse);
+    return true; // keep the message channel open for async response
+  }
+  return false;
+});
+
+// ============================================================================
 // 6. AIDetector - Classify posts as spam using Chrome AI or external API
 // ============================================================================
 
