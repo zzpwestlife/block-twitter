@@ -674,7 +674,7 @@ function renderBlockedUsers() {
         `;
 
         left.appendChild(cb);
-        left.appendChild(meta);
+        left.appendChild(info);
 
         const btn = document.createElement('button');
         btn.className = 'btn btn-small btn-unblock';
