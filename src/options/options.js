@@ -542,16 +542,33 @@ function onBatchMessage(msg) {
         const total = Number(msg.total ?? batchTrueBlockProgress?.total ?? 0);
         const done = Number(msg.done ?? batchTrueBlockProgress?.done ?? 0);
         const username = msg.username || msg.current || null;
+        const ok = Number(msg.ok ?? batchTrueBlockProgress?.ok ?? 0);
+        const already = Number(msg.already ?? batchTrueBlockProgress?.already ?? 0);
+        const failed = Number(msg.failed ?? batchTrueBlockProgress?.failed ?? 0);
+        const step = msg.step || batchTrueBlockProgress?.step || null;
+        const last = msg.last || batchTrueBlockProgress?.last || null;
 
         batchTrueBlockProgress = {
             status: 'running',
             total,
             done,
-            current: username
+            current: username,
+            ok,
+            already,
+            failed,
+            step,
+            last
         };
 
-        const cur = username ? `@${username}` : '';
-        renderBatchTrueBlockProgressText(`进度：${done}/${total} ${cur}`, true);
+        const cur = username
+            ? (String(username).startsWith('@') ? String(username) : `@${username}`)
+            : '';
+        const stepText = step ? `（${step}）` : '';
+        const lastErr = last?.error ? ` | 错误: ${String(last.error).slice(0, 120)}` : '';
+        renderBatchTrueBlockProgressText(
+            `进度：${done}/${total} | 成功 ${ok} | 已屏蔽 ${already} | 失败 ${failed} ${cur}${stepText}${lastErr}`,
+            true
+        );
         setBatchTrueBlockControls(true);
         return;
     }
@@ -563,12 +580,19 @@ function onBatchMessage(msg) {
         const total = Number(msg.total ?? batchTrueBlockProgress.total ?? 0);
         const done = Number(msg.done ?? total);
         const cancelled = Boolean(msg.cancelled);
+        const ok = Number(msg.ok ?? batchTrueBlockProgress?.ok ?? 0);
+        const already = Number(msg.already ?? batchTrueBlockProgress?.already ?? 0);
+        const failed = Number(msg.failed ?? batchTrueBlockProgress?.failed ?? 0);
 
+        const summary = `已处理 ${done}/${total}，成功 ${ok}，已屏蔽 ${already}，失败 ${failed}`;
+        const hint = failed > 0
+            ? '（失败的用户仍保留在隐藏列表并保持勾选，可重试或手动处理）'
+            : '';
         renderBatchTrueBlockProgressText(
-            cancelled ? `已停止：已处理 ${done}/${total}` : `已完成：已处理 ${done}/${total}`,
+            cancelled ? `已停止：${summary} ${hint}` : `已完成：${summary} ${hint}`,
             true
         );
-        showToast(cancelled ? '批量屏蔽已停止' : '批量屏蔽已完成', 'success');
+        showToast(cancelled ? '批量屏蔽已停止' : '批量屏蔽已完成', cancelled ? 'info' : 'success');
         updateBatchSelectedCount();
         return;
     }
@@ -642,9 +666,10 @@ function renderBlockedUsers() {
             updateBatchSelectedCount();
         });
 
-        const meta = document.createElement('div');
-        meta.innerHTML = `
-            <div class="user-name">@${escapeHtml(username)}</div>
+        const info = document.createElement('div');
+        const displayHandle = String(username).startsWith('@') ? String(username) : `@${username}`;
+        info.innerHTML = `
+            <div class="user-name">${escapeHtml(displayHandle)}</div>
             <div class="user-timestamp">${dateStr}</div>
         `;
 

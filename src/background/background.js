@@ -867,7 +867,8 @@ async function startJob(port, usernames) {
       const res = await runTrueBlockInTab(job, tabId, username);
 
       const status = String(res?.status || 'failed');
-      job.last = { username, status };
+      const error = res?.error ? String(res.error) : null;
+      job.last = { username, status, error };
       if (status === 'success') job.ok += 1;
       else if (status === 'already_blocked') job.already += 1;
       else job.failed += 1;
